@@ -1,32 +1,25 @@
 # Roman Bot
 
-Roman Bot is a next-generation **Discord security bot** built with the clear goal of surpassing Wick and Bleed in speed, safety, and reliability.  
-It follows a **North Star architecture**: modular, security-first, explainable actions, privacy-by-design, and operator-ready from day one.
+Roman Bot is a Discord security bot focused on **fast, safe, explainable protection**.  
+It provides **Anti-Nuke**, **logging**, and **diagnostics** with clean modular architecture.
 
 ---
 
-## ✨ Features (v1.2.3)
+## Features (v1 scope)
 
-- **Anti-Nuke Guard**  
-  Sliding window scoring for destructive actions (channel/role/webhook deletes, guild bans, emoji deletes, updates).
-  - Threshold detection with log-only **soft lockdown notices**.
-  - Recovery detection when actions subside.
-  - CLI simulation for safe testing.
-- **Event Coverage**  
-  Tracks `channelDelete`, `roleDelete`, `webhookDelete`, `guildBanAdd`, `emojiDelete`, `guildUpdate`, `roleUpdate`, plus creates.
-- **Weights Overrides**  
-  Per-guild scoring can be tuned without code edits using `data/weights.override.json`.
-- **Diagnostics**  
-  `npm run env:check` → shows Node/OS, feature flags, safe token check, Git commit.  
-  `npm run verify:all` → full smoke test (diag + env + owner + CLI).
+- Anti-Nuke **window scoring** (channel/role/webhook/ban/emoji updates)
+- Threshold logs (`would-lockdown` / `recovered`)
+- CLI tooling: `ping`, `antinuke status`, `antinuke simulate`
+- Environment + diagnostics scripts (`env:check`, `owner:check`)
+- Per-guild **weights override** via JSON (no code changes needed)
 
 ---
 
-## 🚀 Getting Started
+## Setup
 
-### 1. Clone
-
-```powershell
-git clone https://github.com/letterroman7-dotcom/roman-bot.git
-cd roman-bot
-```
+1. **Clone repo & install**
+   ```powershell
+   git clone https://github.com/letterroman7-dotcom/roman-bot.git
+   cd roman-bot
+   npm install
+   ```
