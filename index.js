@@ -1,0 +1,1 @@
+import { getLogger } from "./utils/logger.pino.js";\n\nconst log = await getLogger("roman-bot");\nlog.info("Roman Bot v1 (North Star) is CLI-first. Try: node cli/cli.js --help");\n

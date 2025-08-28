@@ -1,0 +1,1 @@
+export function createModuleRegistry(){const r=Object.create(null);return{register(n,m){if(!n||typeof n!=="string")throw new Error("Module name required");if(r[n])throw new Error(`Module already registered: ${n}`);return r[n]=m,m},get(n){return r[n]},all(){return{...r}}}}

@@ -1,0 +1,29 @@
+{
+  "name": "roman-bot",
+  "version": "1.2.3",
+  "private": true,
+  "type": "module",
+  "description": "Roman Bot v1 (North Star): CLI-first anti-nuke guard, window scoring, structured logs, diagnostics, Discord wiring behind feature flag.",
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "main": "index.js",
+  "scripts": {
+    "clean": "node -e \"try{require('fs').rmSync('dist',{recursive:true,force:true})}catch{}\"",
+    "build": "node -e \"console.log('No build step for JS/ESM v1')\"",
+    "cli": "node cli/cli.js",
+    "ping": "node cli/cli.js ping",
+    "antinuke:status": "node cli/cli.js antinuke status",
+    "antinuke:simulate": "node cli/cli.js antinuke simulate channelDelete 2",
+    "diag:quick": "node scripts/diag-quick.cjs",
+    "env:check": "node scripts/env-check.cjs",
+    "owner:check": "node scripts/verify-owner.cjs",
+    "verify:all": "npm run diag:quick && npm run env:check && npm run owner:check && node cli/cli.js ping && node cli/cli.js antinuke status && node cli/cli.js antinuke simulate channelDelete 2",
+    "start:discord": "node src/discord/run.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "discord.js": "^14.16.3",
+    "pino": "^9.0.0"
+  }
+}

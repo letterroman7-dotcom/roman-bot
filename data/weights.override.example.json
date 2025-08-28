@@ -1,0 +1,18 @@
+{
+  "default": {
+    "threshold": 1,
+    "scorePerEvent": {
+      "guildUpdate": 0.05,
+      "roleUpdate": 0.1
+    }
+  },
+  "guilds": {
+    "123456789012345678": {
+      "threshold": 1.5,
+      "scorePerEvent": {
+        "guildBanAdd": 0.6,
+        "channelDelete": 0.6
+      }
+    }
+  }
+}
