@@ -1,17 +1,27 @@
 {
+  "$schema": "https://json.schemastore.org/tsconfig", 
+  "_comment": "Per-guild AntiNuke overrides. Edit safely; restart bot to apply.",
   "default": {
     "threshold": 1,
-    "scorePerEvent": {
-      "guildUpdate": 0.05,
-      "roleUpdate": 0.1
+    "weights": {
+      "channelDelete": 0.5,
+      "roleDelete": 0.5,
+      "webhookDelete": 0.5,
+      "guildBanAdd": 0.5,
+      "emojiDelete": 0.5,
+      "guildUpdate": 0.1,
+      "roleUpdate": 0.1,
+      "channelCreate": 0.2,
+      "roleCreate": 0.2,
+      "webhookCreate": 0.2
     }
   },
   "guilds": {
-    "123456789012345678": {
-      "threshold": 1.5,
-      "scorePerEvent": {
-        "guildBanAdd": 0.6,
-        "channelDelete": 0.6
+    "REPLACE_WITH_GUILD_ID": {
+      "_comment": "Example: set a higher threshold and heavier weight for bans in a specific guild.",
+      "threshold": 2,
+      "weights": {
+        "guildBanAdd": 1
       }
     }
   }

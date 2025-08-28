@@ -1,14 +1,22 @@
-# Roman Bot — North Star v1
+# Roman Bot — North Star v1 (v1.2.3)
 
-**Vision:** Calm, explainable “security co-pilot.”  
-**Scope (v1):** Anti-Nuke window scoring + CLI (`ping`, `antinuke status`, `antinuke simulate`) + structured logs + diagnostics + clean module wiring + KV seam.  
-**Discord wiring:** available behind a feature flag (`discordWiring`).  
-**Soft-lockdown:** log-only notices when threshold crosses, with recovery notices.
+**Roman Bot** is a calm, explainable **security co-pilot** for Discord guilds.
 
-## Quick start (CLI)
+## ✨ What’s included (v1)
+
+- **Anti-Nuke window scoring** with a sliding window and clear thresholds
+- **Soft-lockdown notices (log-only)** on threshold crossing + recovery logs
+- **Low-noise signals**: `guildBanAdd`, `emojiDelete`, `guildUpdate`, `roleUpdate`
+- **Per-guild overrides** via `data/weights.override.json`
+- **Privacy-by-design logging** (guild/user/channel IDs redacted)
+- **Diagnostics**: `env:check`, `owner:check`, `verify:all`
+- **CLI-first**; Discord wiring behind a feature flag
+
+---
+
+## 🚀 Quick start
+
 ```bash
 npm install
 npm run verify:all
-npm run ping
-npm run antinuke:status
-npm run antinuke:simulate
+```
