@@ -1,0 +1,15 @@
+# Text files normalized to LF in repo
+* text=auto eol=lf
+
+# Keep Windows-friendly endings for scripts
+*.ps1 eol=crlf
+*.bat eol=crlf
+*.cmd eol=crlf
+
+# Mark JSON/JS as text (normalize)
+*.json text
+*.js   text
+*.cjs  text
+*.md   text
+*.yml  text
+*.yaml text

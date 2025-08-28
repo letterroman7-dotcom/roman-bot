@@ -1,5 +1,41 @@
-﻿node_modules/
+﻿# Node
+node_modules/
 dist/
+coverage/
+.nyc_output/
+
+# Env & secrets (DO NOT COMMIT)
 .env
-.DS_Store
+.env.*.local
+*.secret
+*.secrets
+
+# Local config (DO NOT COMMIT)
+data/weights.override.json
+data/*.local.json
+
+# Logs & temp
+logs/
+*.log
 npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.tmp
+.tmp/
+.cache/
+.DS_Store
+Thumbs.db
+
+# OS / editor
+.vscode/
+.idea/
+*.swp
+
+# Builds / artifacts
+*.tar
+*.tgz
+*.zip
+
+# Git metadata
+*.orig
