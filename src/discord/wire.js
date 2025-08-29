@@ -1,17 +1,19 @@
 // src/discord/wire.js
-// Registers /diag, /ping (enhanced), /uptime (new) per joined guild (guild-scoped).
-// Replies are privacy-safe and ephemeral.
+// Registers /diag, /ping, /uptime, /ids per joined guild (guild-scoped).
+// Replies are privacy-safe and ephemeral via MessageFlags.Ephemeral.
 // Feature flags in data/feature-flags.json:
 //   {
 //     "slashDiag": true,
 //     "slashPing": true,
 //     "slashUptime": true,
+//     "slashIds": true,
 //     "pingThresholds": { "wsWarn":150, "wsCrit":300, "apiWarn":500, "apiCrit":1000 }
 //   }
 
 import path from "node:path";
 import fs from "node:fs/promises";
 import os from "node:os";
+import { MessageFlags } from "discord.js";
 
 /* ---------- utils ---------- */
 
@@ -46,16 +48,17 @@ function evalStatus(wsMs, apiMs, th) {
 /* ---------- main wiring ---------- */
 
 export async function wire(client) {
-  // --- Interaction handler for /diag, /ping, /uptime (all ephemeral) ---
+  // --- Interaction handler for /diag, /ping, /uptime, /ids (all ephemeral) ---
   client.on("interactionCreate", async (i) => {
     try {
       if (!i.isChatInputCommand()) return;
 
       // Load flags once per interaction
       const features = await readJSONSafe(path.join(process.cwd(), "data", "feature-flags.json"));
-      const allowDiag = normBool(features.slashDiag, true);
-      const allowPing = normBool(features.slashPing, true);
+      const allowDiag   = normBool(features.slashDiag, true);
+      const allowPing   = normBool(features.slashPing, true);
       const allowUptime = normBool(features.slashUptime, true);
+      const allowIds    = normBool(features.slashIds, true);
       const th = Object.assign({ wsWarn:150, wsCrit:300, apiWarn:500, apiCrit:1000 }, features.pingThresholds || {});
 
       if (i.commandName === "diag") {
@@ -68,23 +71,23 @@ export async function wire(client) {
           node: process.version,
           versionsDeclared,
           versionsInstalled,
-          flags: { startupSummary: !!features.startupSummary, slashDiag: allowDiag, slashPing: allowPing, slashUptime: allowUptime },
+          flags: { startupSummary: !!features.startupSummary, slashDiag: allowDiag, slashPing: allowPing, slashUptime: allowUptime, slashIds: allowIds },
           env: { DISCORD_TOKEN: redact(process.env.DISCORD_TOKEN || process.env.BOT_TOKEN) },
         };
         const payload = "```json\n" + JSON.stringify(info, null, 2).slice(0, 1900) + "\n```";
-        await i.reply({ content: payload, ephemeral: true });
+        await i.reply({ content: payload, flags: MessageFlags.Ephemeral });
         return;
       }
 
       if (i.commandName === "ping") {
         if (!allowPing) return;
         const t0 = Date.now();
-        await i.deferReply({ ephemeral: true });             // REST round-trip
+        await i.deferReply({ flags: MessageFlags.Ephemeral });   // (was: ephemeral: true)
         const apiLatency = Date.now() - t0;
         const wsLatency = Math.max(0, Math.round(client.ws.ping || 0));
         const upMs = process.uptime() * 1000;
         const info = {
-          status: evalStatus(wsLatency, apiLatency, th),      // ok | warn | crit
+          status: evalStatus(wsLatency, apiLatency, th),
           wsMs: wsLatency,
           apiMs: apiLatency,
           thresholds: th,
@@ -94,10 +97,7 @@ export async function wire(client) {
           uptime: formatUptime(upMs),
           mem: memSnapshot()
         };
-
-        // Redacted log line for history (console is already redacted by utils/log-hygiene.js)
         console.log(`[ping] status=${info.status} ws=${info.wsMs}ms api=${info.apiMs}ms up=${info.uptime} mem(rssMB)=${info.mem.rssMB}`);
-
         await i.editReply({ content: "```json\n" + JSON.stringify(info, null, 2).slice(0, 1900) + "\n```" });
         return;
       }
@@ -114,11 +114,26 @@ export async function wire(client) {
           pid: process.pid,
           host: os.hostname()
         };
-        await i.reply({ content: "```json\n" + JSON.stringify(info, null, 2) + "\n```", ephemeral: true });
+        await i.reply({ content: "```json\n" + JSON.stringify(info, null, 2) + "\n```", flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      if (i.commandName === "ids") {
+        if (!allowIds) return;
+        const isDM = !i.inGuild();
+        const info = {
+          isDM,
+          guildId: i.guildId || null,
+          guildName: i.guild?.name || null,
+          channelId: i.channelId || null,
+          userId: i.user?.id || null,
+          user: i.user?.tag || null
+        };
+        await i.reply({ content: "```json\n" + JSON.stringify(info, null, 2) + "\n```", flags: MessageFlags.Ephemeral });
         return;
       }
     } catch {
-      try { await i.reply({ content: "Command failed. Check logs.", ephemeral: true }); } catch {}
+      try { await i.reply({ content: "Command failed. Check logs.", flags: MessageFlags.Ephemeral }); } catch {}
     }
   });
 
@@ -129,14 +144,16 @@ export async function wire(client) {
       if (!app) return;
 
       const features = await readJSONSafe(path.join(process.cwd(), "data", "feature-flags.json"));
-      const wantDiag = normBool(features.slashDiag, true);   // default ON
-      const wantPing = normBool(features.slashPing, true);   // default ON
-      const wantUptime = normBool(features.slashUptime, true); // default ON
+      const wantDiag   = normBool(features.slashDiag, true);
+      const wantPing   = normBool(features.slashPing, true);
+      const wantUptime = normBool(features.slashUptime, true);
+      const wantIds    = normBool(features.slashIds, true);
 
       const defs = [];
-      if (wantDiag) defs.push({ name: "diag", description: "Show bot diagnostics (ephemeral)", dm_permission: false });
-      if (wantPing) defs.push({ name: "ping", description: "Bot latency + uptime + memory (ephemeral)", dm_permission: false });
-      if (wantUptime) defs.push({ name: "uptime", description: "Show bot start time and uptime (ephemeral)", dm_permission: false });
+      if (wantDiag)   defs.push({ name: "diag",   description: "Show bot diagnostics (ephemeral)",              dm_permission: false });
+      if (wantPing)   defs.push({ name: "ping",   description: "Bot latency + uptime + memory (ephemeral)",    dm_permission: false });
+      if (wantUptime) defs.push({ name: "uptime", description: "Show bot start time and uptime (ephemeral)",   dm_permission: false });
+      if (wantIds)    defs.push({ name: "ids",    description: "Show guild/channel/user IDs (ephemeral)",      dm_permission: false });
       if (defs.length === 0) return;
 
       for (const [guildId] of client.guilds.cache) {
