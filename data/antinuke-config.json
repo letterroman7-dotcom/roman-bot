@@ -1,0 +1,22 @@
+{
+  "defaults": {
+    "threshold": 1,
+    "weights": {
+      "channelDelete": 0.5,
+      "roleDelete": 0.5,
+      "channelCreate": 0.25,
+      "roleCreate": 0.25,
+      "webhookCreate": 0.25,
+      "webhookDelete": 0.25
+    }
+  },
+  "guilds": {
+    "YOUR_GUILD_ID": {
+      "threshold": 1,
+      "weights": {
+        "channelDelete": 0.6,
+        "roleDelete": 0.6
+      }
+    }
+  }
+}

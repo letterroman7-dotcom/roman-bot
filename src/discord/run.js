@@ -1,88 +1,142 @@
 // src/discord/run.js
-// Minimal Discord bootstrap. Honors feature flag "discordWiring".
-// Events increment AntiNuke scoring and log status; emits soft-lockdown notices (log-only) on threshold.
-// No punitive actions (v1 scope). Supports per-guild overrides via AntiNukeDirector.
-
 import "dotenv/config";
-import { Client, GatewayIntentBits, Partials } from "discord.js";
-import { getLogger } from "../../utils/logger.pino.js";
-import { isEnabled } from "../../utils/feature-flags.js";
-import { AntiNukeDirector } from "../../modules/antinuke/director.js";
-import { ThresholdNotifier } from "../../modules/antinuke/threshold-notifier.js";
+import { pathToFileURL } from "node:url";
+import path from "node:path";
+import fs from "node:fs/promises";
+import { Client, GatewayIntentBits, Partials, ActivityType } from "discord.js";
+import createLogger from "../../utils/pino-factory.js";
 
-const log = await getLogger("discord.run");
+const log = createLogger("discord.run");
 
-async function main() {
-  if (!isEnabled("discordWiring")) {
-    log.warn("discordWiring is disabled in data/feature-flags.json. Enable it and re-run.");
+/** Optional import helper (ESM, file URL safe). */
+async function tryImport(specOrUrl) {
+  try {
+    const mod = await import(specOrUrl instanceof URL ? specOrUrl.href : specOrUrl);
+    return mod?.default ?? mod;
+  } catch (err) {
+    const msg = String(err?.message || err || "");
+    if (msg.includes("Cannot find module") || err?.code === "ERR_MODULE_NOT_FOUND") {
+      log.warn({ spec: String(specOrUrl) }, "optional module not found; continuing");
+      return null;
+    }
+    log.warn({ err, spec: String(specOrUrl) }, "optional module failed to import; continuing");
+    return null;
   }
+}
 
-  const token = process.env.DISCORD_TOKEN;
-  if (!token) {
-    log.error("Missing DISCORD_TOKEN in environment. Set it in .env.");
-    process.exitCode = 1;
+/* ---------- Startup Anti-Nuke summary (inline, no external file) ---------- */
+
+const ANTINUKE_FILE = path.join(process.cwd(), "data", "antinuke-config.json");
+
+async function loadAntiNukeConfig() {
+  try {
+    const raw = await fs.readFile(ANTINUKE_FILE, "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return null; // missing or invalid file is fine
+  }
+}
+
+function mergeAntiNukeConfig(cfg, guildId) {
+  const defaults = (cfg && cfg.defaults) || {};
+  const guilds = (cfg && cfg.guilds) || {};
+  const override = guilds[guildId] || {};
+  return {
+    threshold: (override.threshold ?? defaults.threshold ?? 1),
+    weights: { ...(defaults.weights || {}), ...(override.weights || {}) },
+  };
+}
+
+async function printAntiNukeSummary(client) {
+  const cfg = await loadAntiNukeConfig();
+  const guilds = client?.guilds?.cache ?? new Map();
+
+  console.log(`[startup] Anti-Nuke summary for ${guilds.size} guild(s):`);
+  for (const [, g] of guilds) {
+    const merged = mergeAntiNukeConfig(cfg, g?.id);
+    const weights = Object.entries(merged.weights || {})
+      .map(([k, v]) => `${k}:${v}`)
+      .join(", ") || "(none)";
+    // IDs are already being redacted by utils/log-hygiene.js preload
+    console.log(`[startup][anti-nuke] "${g?.name ?? "Unknown"}" threshold=${merged.threshold} weights={ ${weights} }`);
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+
+export async function startDiscord() {
+  const TOKEN = process.env.DISCORD_TOKEN || process.env.BOT_TOKEN;
+  if (!TOKEN) {
+    log.error("Missing DISCORD_TOKEN (or BOT_TOKEN). Bot will not start.");
     return;
   }
 
   const client = new Client({
     intents: [
       GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildModeration,
       GatewayIntentBits.GuildMembers,
-      GatewayIntentBits.GuildBans
+      GatewayIntentBits.GuildModeration,
+      GatewayIntentBits.GuildBans,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.GuildEmojisAndStickers,
+      GatewayIntentBits.GuildWebhooks,
+      GatewayIntentBits.MessageContent
     ],
-    partials: [Partials.GuildMember, Partials.Channel]
+    partials: [Partials.GuildMember, Partials.Message, Partials.Channel, Partials.Reaction],
   });
 
-  // Shared services (process-wide)
-  const director = new AntiNukeDirector(); // per-guild services with overrides
-  const notifier = new ThresholdNotifier();
+  // --- Optional wiring (won't crash if files are missing) ---
+  const wireSecurity = await tryImport(new URL("./wire-security.js", import.meta.url));
+  if (wireSecurity) {
+    try {
+      const fn = wireSecurity.wireSecurity ?? wireSecurity.execute ?? wireSecurity;
+      if (typeof fn === "function") await fn(client);
+    } catch (err) {
+      log.warn({ err }, "wireSecurity failed");
+    }
+  }
 
-  client.once("clientReady", () => {
+  const wire = await tryImport(new URL("./wire.js", import.meta.url));
+  if (wire) {
+    try {
+      const fn = wire.wire ?? wire.execute ?? wire;
+      if (typeof fn === "function") await fn(client);
+    } catch (err) {
+      log.warn({ err }, "wire (commands) failed");
+    }
+  }
+
+  // Use clientReady (future-proof for discord.js v15; still fires on v14)
+  client.once("clientReady", async () => {
     log.info({ user: client.user?.tag, id: client.user?.id }, "Discord client ready");
+
+    try {
+      client.user?.setPresence({
+        activities: [{ name: "Keeping your server safe", type: ActivityType.Watching }],
+        status: "online",
+      });
+    } catch {}
+
+    try {
+      await printAntiNukeSummary(client);
+    } catch (err) {
+      log.warn({ err }, "Anti-Nuke startup summary failed");
+    }
   });
 
-  // Wire events (one-event-per-file; pass director + notifier)
-  const { onChannelDelete } = await import("../../events/channelDelete.antiNuke.js");
-  const { onRoleDelete } = await import("../../events/roleDelete.antiNuke.js");
-  const { onWebhooksUpdate } = await import("../../events/webhooksUpdate.antiNuke.js");
-  const { onGuildBanAdd } = await import("../../events/guildBanAdd.antiNuke.js");
-  const { onEmojiDelete } = await import("../../events/emojiDelete.antiNuke.js");
-  const { onGuildUpdate } = await import("../../events/guildUpdate.antiNuke.js");
-  const { onRoleUpdate } = await import("../../events/roleUpdate.antiNuke.js");
-
-  client.on("channelDelete", (channel) =>
-    onChannelDelete({ client, log, director, notifier, channel, featureOn: isEnabled("discordWiring") })
-  );
-
-  client.on("roleDelete", (role) =>
-    onRoleDelete({ client, log, director, notifier, role, featureOn: isEnabled("discordWiring") })
-  );
-
-  client.on("webhooksUpdate", (channel) =>
-    onWebhooksUpdate({ client, log, director, notifier, channel, featureOn: isEnabled("discordWiring") })
-  );
-
-  client.on("guildBanAdd", (ban) =>
-    onGuildBanAdd({ client, log, director, notifier, ban, featureOn: isEnabled("discordWiring") })
-  );
-
-  client.on("emojiDelete", (emoji) =>
-    onEmojiDelete({ client, log, director, notifier, emoji, featureOn: isEnabled("discordWiring") })
-  );
-
-  client.on("guildUpdate", (oldGuild, newGuild) =>
-    onGuildUpdate({ client, log, director, notifier, oldGuild, newGuild, featureOn: isEnabled("discordWiring") })
-  );
-
-  client.on("roleUpdate", (oldRole, newRole) =>
-    onRoleUpdate({ client, log, director, notifier, oldRole, newRole, featureOn: isEnabled("discordWiring") })
-  );
-
-  await client.login(token);
+  await client.login(TOKEN);
 }
 
-main().catch((err) => {
-  log.error({ err }, "Discord run crashed");
-  process.exitCode = 1;
-});
+/* --- correct “main module” check for Windows paths with spaces --- */
+try {
+  const isEntry =
+    typeof process.argv[1] === "string" &&
+    import.meta.url === pathToFileURL(process.argv[1]).href;
+
+  if (isEntry) {
+    startDiscord();
+  }
+} catch {
+  // Safer default for CLI usage
+  startDiscord();
+}

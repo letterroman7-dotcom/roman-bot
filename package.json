@@ -1,29 +1,32 @@
-{
-  "name": "roman-bot",
-  "version": "1.2.3",
-  "private": true,
-  "type": "module",
-  "description": "Roman Bot v1 (North Star): CLI-first anti-nuke guard, window scoring, structured logs, diagnostics, Discord wiring behind feature flag.",
-  "engines": {
-    "node": ">=18.18.0"
-  },
-  "main": "index.js",
-  "scripts": {
-    "clean": "node -e \"try{require('fs').rmSync('dist',{recursive:true,force:true})}catch{}\"",
-    "build": "node -e \"console.log('No build step for JS/ESM v1')\"",
-    "cli": "node cli/cli.js",
-    "ping": "node cli/cli.js ping",
-    "antinuke:status": "node cli/cli.js antinuke status",
-    "antinuke:simulate": "node cli/cli.js antinuke simulate channelDelete 2",
-    "diag:quick": "node scripts/diag-quick.cjs",
-    "env:check": "node scripts/env-check.cjs",
-    "owner:check": "node scripts/verify-owner.cjs",
-    "verify:all": "npm run diag:quick && npm run env:check && npm run owner:check && node cli/cli.js ping && node cli/cli.js antinuke status && node cli/cli.js antinuke simulate channelDelete 2",
-    "start:discord": "node src/discord/run.js"
-  },
-  "dependencies": {
-    "dotenv": "^16.4.5",
-    "discord.js": "^14.16.3",
-    "pino": "^9.0.0"
-  }
+﻿{
+    "name":  "roman-bot",
+    "version":  "1.2.3",
+    "private":  true,
+    "type":  "module",
+    "description":  "Roman Bot v1 (North Star): CLI-first anti-nuke guard, window scoring, structured logs, diagnostics, Discord wiring behind feature flag.",
+    "engines":  {
+                    "node":  "\u003e=18.18.0"
+                },
+    "main":  "index.js",
+    "scripts":  {
+                    "clean":  "node -e \"try{require(\u0027fs\u0027).rmSync(\u0027dist\u0027,{recursive:true,force:true})}catch{}\"",
+                    "build":  "node -e \"console.log(\u0027No build step for JS/ESM v1\u0027)\"",
+                    "cli":  "node cli/cli.js",
+                    "ping":  "node cli/cli.js ping",
+                    "antinuke:status":  "node cli/cli.js antinuke status",
+                    "antinuke:simulate":  "node cli/cli.js antinuke simulate channelDelete 2",
+                    "diag:quick":  "node scripts/diag-quick.cjs",
+                    "env:check":  "node scripts/env-check.cjs",
+                    "owner:check":  "node scripts/verify-owner.cjs",
+                    "verify:all":  "npm run diag:quick \u0026\u0026 npm run env:check \u0026\u0026 npm run owner:check \u0026\u0026 node cli/cli.js ping \u0026\u0026 node cli/cli.js antinuke status \u0026\u0026 node cli/cli.js antinuke simulate channelDelete 2",
+                    "start:discord":  "node scripts/handoff-snapshot.cjs \u0026\u0026 node --import \"./utils/log-hygiene.js\" src/discord/run.js",
+                    "handoff:session":  "node -e \"const p=require(\u0027path\u0027);console.log(\u0027handoff: \u0027+p.join(process.cwd(),\u0027.handoff\u0027,\u0027context.json\u0027));\"",
+                    "handoff:snapshot":  "node scripts/handoff-snapshot.cjs",
+                    "diag":  "node scripts/diag.cjs"
+                },
+    "dependencies":  {
+                         "dotenv":  "^16.4.5",
+                         "discord.js":  "^14.22.1",
+                         "pino":  "^9.9.0"
+                     }
 }
