@@ -1,3 +1,5 @@
-{
-  "discordWiring": true
+﻿{
+    "discordWiring":  true,
+    "startupSummary":  false,
+    "slashDiag":  true
 }

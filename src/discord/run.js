@@ -8,6 +8,12 @@ import createLogger from "../../utils/pino-factory.js";
 
 const log = createLogger("discord.run");
 
+/* ---------- helpers ---------- */
+function stripBOM(s) { return typeof s === "string" ? s.replace(/^\uFEFF/, "") : s; }
+async function readJSONSafe(file) {
+  try { return JSON.parse(stripBOM(await fs.readFile(file, "utf8"))); } catch { return {}; }
+}
+
 /** Optional import helper (ESM, file URL safe). */
 async function tryImport(specOrUrl) {
   try {
@@ -24,14 +30,14 @@ async function tryImport(specOrUrl) {
   }
 }
 
-/* ---------- Startup Anti-Nuke summary (inline, no external file) ---------- */
+/* ---------- Startup Anti-Nuke summary (inline) ---------- */
 
 const ANTINUKE_FILE = path.join(process.cwd(), "data", "antinuke-config.json");
 
 async function loadAntiNukeConfig() {
   try {
     const raw = await fs.readFile(ANTINUKE_FILE, "utf8");
-    return JSON.parse(raw);
+    return JSON.parse(stripBOM(raw));
   } catch {
     return null; // missing or invalid file is fine
   }
@@ -57,7 +63,6 @@ async function printAntiNukeSummary(client) {
     const weights = Object.entries(merged.weights || {})
       .map(([k, v]) => `${k}:${v}`)
       .join(", ") || "(none)";
-    // IDs are already being redacted by utils/log-hygiene.js preload
     console.log(`[startup][anti-nuke] "${g?.name ?? "Unknown"}" threshold=${merged.threshold} weights={ ${weights} }`);
   }
 }
@@ -85,7 +90,7 @@ export async function startDiscord() {
     partials: [Partials.GuildMember, Partials.Message, Partials.Channel, Partials.Reaction],
   });
 
-  // --- Optional wiring (won't crash if files are missing) ---
+  // Optional wiring (won't crash if files are missing)
   const wireSecurity = await tryImport(new URL("./wire-security.js", import.meta.url));
   if (wireSecurity) {
     try {
@@ -106,10 +111,9 @@ export async function startDiscord() {
     }
   }
 
-  // Use clientReady (future-proof for discord.js v15; still fires on v14)
+  // Use clientReady (v14 emits it; v15 will require it)
   client.once("clientReady", async () => {
     log.info({ user: client.user?.tag, id: client.user?.id }, "Discord client ready");
-
     try {
       client.user?.setPresence({
         activities: [{ name: "Keeping your server safe", type: ActivityType.Watching }],
@@ -117,8 +121,11 @@ export async function startDiscord() {
       });
     } catch {}
 
+    // Respect feature flag for startup summary (default ON unless explicitly false)
     try {
-      await printAntiNukeSummary(client);
+      const features = await readJSONSafe(path.join(process.cwd(), "data", "feature-flags.json"));
+      const startupOn = features.startupSummary !== false;
+      if (startupOn) await printAntiNukeSummary(client);
     } catch (err) {
       log.warn({ err }, "Anti-Nuke startup summary failed");
     }
