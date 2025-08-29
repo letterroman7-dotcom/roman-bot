@@ -14,5 +14,8 @@
     "securityLogToChannel":  true,
     "enforce":  {
                     "massGuard":  false
-                }
+                },
+    "slashFeatures":  true,
+    "slashRestorePreview":  true,
+    "restorePreviewToChannel":  true
 }
