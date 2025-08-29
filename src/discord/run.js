@@ -5,6 +5,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { Client, GatewayIntentBits, Partials, ActivityType } from "discord.js";
 import createLogger from "../../utils/pino-factory.js";
+import { validateAntiNukeConfig } from "../../utils/validate-antinuke-config.js";
 
 const log = createLogger("discord.run");
 
@@ -30,7 +31,7 @@ async function tryImport(specOrUrl) {
   }
 }
 
-/* ---------- Startup Anti-Nuke summary (inline) ---------- */
+/* ---------- Anti-Nuke config + summary ---------- */
 
 const ANTINUKE_FILE = path.join(process.cwd(), "data", "antinuke-config.json");
 
@@ -53,8 +54,7 @@ function mergeAntiNukeConfig(cfg, guildId) {
   };
 }
 
-async function printAntiNukeSummary(client) {
-  const cfg = await loadAntiNukeConfig();
+async function printAntiNukeSummary(client, cfg) {
   const guilds = client?.guilds?.cache ?? new Map();
 
   console.log(`[startup] Anti-Nuke summary for ${guilds.size} guild(s):`);
@@ -121,11 +121,21 @@ export async function startDiscord() {
       });
     } catch {}
 
-    // Respect feature flag for startup summary (default ON unless explicitly false)
+    // Feature flag: startup summary (default ON unless explicitly false)
     try {
       const features = await readJSONSafe(path.join(process.cwd(), "data", "feature-flags.json"));
       const startupOn = features.startupSummary !== false;
-      if (startupOn) await printAntiNukeSummary(client);
+
+      // Load + validate config once at boot
+      const rawCfg = await loadAntiNukeConfig();
+      let validated = { ok: true, errors: [], warnings: [], cfg: rawCfg };
+      if (rawCfg) {
+        validated = validateAntiNukeConfig(rawCfg);
+        for (const e of validated.errors) log.warn({ msg: e }, "antinuke-config error");
+        for (const w of validated.warnings) log.warn({ msg: w }, "antinuke-config warning");
+      }
+
+      if (startupOn) await printAntiNukeSummary(client, validated.cfg);
     } catch (err) {
       log.warn({ err }, "Anti-Nuke startup summary failed");
     }
