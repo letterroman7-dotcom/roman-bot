@@ -1,118 +1,151 @@
 // src/discord/wire.js
-// Registers a /diag slash command per joined guild (guild-scoped, fast)
-// and replies with a privacy-safe, ephemeral diagnostics JSON.
-// Controlled by data/feature-flags.json -> { "slashDiag": true/false } (default: true)
+// Registers /diag, /ping (enhanced), /uptime (new) per joined guild (guild-scoped).
+// Replies are privacy-safe and ephemeral.
+// Feature flags in data/feature-flags.json:
+//   {
+//     "slashDiag": true,
+//     "slashPing": true,
+//     "slashUptime": true,
+//     "pingThresholds": { "wsWarn":150, "wsCrit":300, "apiWarn":500, "apiCrit":1000 }
+//   }
 
 import path from "node:path";
 import fs from "node:fs/promises";
+import os from "node:os";
 
 /* ---------- utils ---------- */
 
-function stripBOM(s) {
-  return typeof s === "string" ? s.replace(/^\uFEFF/, "") : s;
-}
-
-/** Safe JSON read that tolerates BOM; returns {} on any error. */
-async function readJSONSafe(file) {
-  try {
-    const raw = await fs.readFile(file, "utf8");
-    return JSON.parse(stripBOM(raw));
-  } catch {
-    return {};
-  }
-}
-
-function normBool(v, fallback = true) {
-  if (typeof v === "boolean") return v;
-  if (typeof v === "string") return v.toLowerCase() === "true";
-  return fallback;
-}
-
+function stripBOM(s) { return typeof s === "string" ? s.replace(/^\uFEFF/, "") : s; }
+/** Safe JSON read; returns {} on any error. */
+async function readJSONSafe(file) { try { return JSON.parse(stripBOM(await fs.readFile(file, "utf8"))); } catch { return {}; } }
+function normBool(v, fallback = true) { if (typeof v === "boolean") return v; if (typeof v === "string") return v.toLowerCase() === "true"; return fallback; }
 async function installedVersion(pkgName) {
-  try {
-    const meta = JSON.parse(
-      await fs.readFile(path.join(process.cwd(), "node_modules", pkgName, "package.json"), "utf8")
-    );
-    return meta.version || "";
-  } catch {
-    return "";
-  }
+  try { const meta = JSON.parse(await fs.readFile(path.join(process.cwd(), "node_modules", pkgName, "package.json"), "utf8")); return meta.version || ""; }
+  catch { return ""; }
 }
-
-function redact(tok) {
-  if (!tok) return undefined;
-  const s = String(tok);
-  return `***redacted***${s.slice(-4)}`;
+function redact(tok) { if (!tok) return undefined; const s = String(tok); return `***redacted***${s.slice(-4)}`; }
+function formatUptime(ms) {
+  const total = Math.floor(ms / 1000);
+  const s = total % 60, m = Math.floor(total / 60) % 60, h = Math.floor(total / 3600) % 24, d = Math.floor(total / 86400);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d}d ${pad(h)}:${pad(m)}:${pad(s)}`;
+}
+function memSnapshot() {
+  const mu = process.memoryUsage();
+  const mb = (n) => Math.round((n / (1024 * 1024)) * 10) / 10;
+  return { rssMB: mb(mu.rss), heapUsedMB: mb(mu.heapUsed), heapTotalMB: mb(mu.heapTotal) };
+}
+function evalStatus(wsMs, apiMs, th) {
+  const ws = wsMs ?? 0, api = apiMs ?? 0;
+  let status = "ok";
+  if (ws >= th.wsCrit || api >= th.apiCrit) status = "crit";
+  else if (ws >= th.wsWarn || api >= th.apiWarn) status = "warn";
+  return status;
 }
 
 /* ---------- main wiring ---------- */
 
 export async function wire(client) {
-  // --- Interaction handler for /diag (ephemeral) ---
+  // --- Interaction handler for /diag, /ping, /uptime (all ephemeral) ---
   client.on("interactionCreate", async (i) => {
     try {
       if (!i.isChatInputCommand()) return;
-      if (i.commandName !== "diag") return;
 
-      // Read package.json robustly (BOM-safe)
-      const pkg = await readJSONSafe(path.join(process.cwd(), "package.json"));
-      const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
-
-      const versionsDeclared = {
-        "discord.js": deps["discord.js"] || "",
-        "pino": deps["pino"] || "",
-      };
-      const versionsInstalled = {
-        "discord.js": await installedVersion("discord.js"),
-        "pino": await installedVersion("pino"),
-      };
-
+      // Load flags once per interaction
       const features = await readJSONSafe(path.join(process.cwd(), "data", "feature-flags.json"));
-      const info = {
-        node: process.version,
-        versionsDeclared,
-        versionsInstalled,
-        flags: {
-          startupSummary: !!features.startupSummary,
-          slashDiag: normBool(features.slashDiag, true),
-        },
-        env: {
-          DISCORD_TOKEN: redact(process.env.DISCORD_TOKEN || process.env.BOT_TOKEN),
-        },
-      };
+      const allowDiag = normBool(features.slashDiag, true);
+      const allowPing = normBool(features.slashPing, true);
+      const allowUptime = normBool(features.slashUptime, true);
+      const th = Object.assign({ wsWarn:150, wsCrit:300, apiWarn:500, apiCrit:1000 }, features.pingThresholds || {});
 
-      const payload = "```json\n" + JSON.stringify(info, null, 2).slice(0, 1900) + "\n```";
-      await i.reply({ content: payload, ephemeral: true });
+      if (i.commandName === "diag") {
+        if (!allowDiag) return;
+        const pkg = await readJSONSafe(path.join(process.cwd(), "package.json"));
+        const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+        const versionsDeclared = { "discord.js": deps["discord.js"] || "", "pino": deps["pino"] || "" };
+        const versionsInstalled = { "discord.js": await installedVersion("discord.js"), "pino": await installedVersion("pino") };
+        const info = {
+          node: process.version,
+          versionsDeclared,
+          versionsInstalled,
+          flags: { startupSummary: !!features.startupSummary, slashDiag: allowDiag, slashPing: allowPing, slashUptime: allowUptime },
+          env: { DISCORD_TOKEN: redact(process.env.DISCORD_TOKEN || process.env.BOT_TOKEN) },
+        };
+        const payload = "```json\n" + JSON.stringify(info, null, 2).slice(0, 1900) + "\n```";
+        await i.reply({ content: payload, ephemeral: true });
+        return;
+      }
+
+      if (i.commandName === "ping") {
+        if (!allowPing) return;
+        const t0 = Date.now();
+        await i.deferReply({ ephemeral: true });             // REST round-trip
+        const apiLatency = Date.now() - t0;
+        const wsLatency = Math.max(0, Math.round(client.ws.ping || 0));
+        const upMs = process.uptime() * 1000;
+        const info = {
+          status: evalStatus(wsLatency, apiLatency, th),      // ok | warn | crit
+          wsMs: wsLatency,
+          apiMs: apiLatency,
+          thresholds: th,
+          timestamp: new Date().toISOString(),
+          host: os.hostname(),
+          pid: process.pid,
+          uptime: formatUptime(upMs),
+          mem: memSnapshot()
+        };
+
+        // Redacted log line for history (console is already redacted by utils/log-hygiene.js)
+        console.log(`[ping] status=${info.status} ws=${info.wsMs}ms api=${info.apiMs}ms up=${info.uptime} mem(rssMB)=${info.mem.rssMB}`);
+
+        await i.editReply({ content: "```json\n" + JSON.stringify(info, null, 2).slice(0, 1900) + "\n```" });
+        return;
+      }
+
+      if (i.commandName === "uptime") {
+        if (!allowUptime) return;
+        const upMs = Math.floor(process.uptime() * 1000);
+        const startedAt = new Date(Date.now() - upMs).toISOString();
+        const info = {
+          startedAt,
+          uptime: formatUptime(upMs),
+          guilds: client.guilds.cache.size,
+          user: client.user?.tag,
+          pid: process.pid,
+          host: os.hostname()
+        };
+        await i.reply({ content: "```json\n" + JSON.stringify(info, null, 2) + "\n```", ephemeral: true });
+        return;
+      }
     } catch {
-      try { await i.reply({ content: "Diag failed. Check logs.", ephemeral: true }); } catch {}
+      try { await i.reply({ content: "Command failed. Check logs.", ephemeral: true }); } catch {}
     }
   });
 
-  // --- Register /diag per guild on clientReady (fast propagation) ---
+  // --- Register commands per guild on clientReady (fast propagation) ---
   client.once("clientReady", async () => {
     try {
       const app = client.application;
       if (!app) return;
 
       const features = await readJSONSafe(path.join(process.cwd(), "data", "feature-flags.json"));
-      const enable = normBool(features.slashDiag, true); // default ON
-      if (!enable) return;
+      const wantDiag = normBool(features.slashDiag, true);   // default ON
+      const wantPing = normBool(features.slashPing, true);   // default ON
+      const wantUptime = normBool(features.slashUptime, true); // default ON
 
-      const cmd = {
-        name: "diag",
-        description: "Show bot diagnostics (ephemeral)",
-        dm_permission: false,
-      };
+      const defs = [];
+      if (wantDiag) defs.push({ name: "diag", description: "Show bot diagnostics (ephemeral)", dm_permission: false });
+      if (wantPing) defs.push({ name: "ping", description: "Bot latency + uptime + memory (ephemeral)", dm_permission: false });
+      if (wantUptime) defs.push({ name: "uptime", description: "Show bot start time and uptime (ephemeral)", dm_permission: false });
+      if (defs.length === 0) return;
 
       for (const [guildId] of client.guilds.cache) {
-        try {
-          await app.commands.create(cmd, guildId); // guild-scoped for instant availability
-        } catch {
-          // ignore per-guild failures (missing perms, etc.)
+        for (const def of defs) {
+          try { await app.commands.create(def, guildId); } catch { /* ignore dup/perm errors */ }
         }
       }
     } catch {
-      // ignore registration errors; command just won't appear
+      // ignore registration errors; commands just won't appear
     }
   });
 }
