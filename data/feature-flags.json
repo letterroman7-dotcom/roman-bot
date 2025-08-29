@@ -9,5 +9,10 @@
                            "wsCrit":  300,
                            "apiWarn":  500,
                            "apiCrit":  1000
-                       }
+                       },
+    "slashIds":  true,
+    "securityLogToChannel":  true,
+    "enforce":  {
+                    "massGuard":  false
+                }
 }
