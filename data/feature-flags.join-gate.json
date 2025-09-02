@@ -1,0 +1,10 @@
+{
+  "joinGateEnabled": true,
+  "joinGateWindowMs": 60000,
+  "joinGateMaxJoinsPerWindow": 8,
+  "joinGateMinAccountAgeDays": 7,
+  "joinGateNewAccountRatio": 0.6,
+  "joinGateSoftLockOnTrigger": true,
+  "joinGateEnforceLock": true,
+  "joinGateLockDurationMinutes": 15
+}

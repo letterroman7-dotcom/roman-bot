@@ -22,7 +22,8 @@
                     "start:discord":  "node scripts/handoff-snapshot.cjs \u0026\u0026 node --import \"./utils/log-hygiene.js\" src/discord/run.js",
                     "handoff:session":  "node -e \"const p=require(\u0027path\u0027);console.log(\u0027handoff: \u0027+p.join(process.cwd(),\u0027.handoff\u0027,\u0027context.json\u0027));\"",
                     "handoff:snapshot":  "node scripts/handoff-snapshot.cjs",
-                    "diag":  "node scripts/diag.cjs"
+                    "diag":  "node scripts/diag.cjs",
+                    "exemptions":  "node scripts/exemptions-check.cjs"
                 },
     "dependencies":  {
                          "dotenv":  "^16.4.5",

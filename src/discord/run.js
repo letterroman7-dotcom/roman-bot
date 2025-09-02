@@ -1,159 +1,157 @@
 // src/discord/run.js
-import "dotenv/config";
-import { pathToFileURL } from "node:url";
+import { Client, GatewayIntentBits, Partials } from "discord.js";
+import process from "node:process";
+import os from "node:os";
+import fs from "node:fs";
+import fsp from "node:fs/promises";
 import path from "node:path";
-import fs from "node:fs/promises";
-import { Client, GatewayIntentBits, Partials, ActivityType } from "discord.js";
-import createLogger from "../../utils/pino-factory.js";
-import { validateAntiNukeConfig } from "../../utils/validate-antinuke-config.js";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-const log = createLogger("discord.run");
+/* ---------- tiny logger ---------- */
+function redact(tok) { if (!tok) return undefined; const s = String(tok); return `***redacted***${s.slice(-4)}`; }
+function jlog(level, fields) {
+  const base = { level, name: "discord.run" };
+  const out = JSON.stringify({ ...base, ...fields });
+  if (level === "error") console.error(out);
+  else if (level === "warn") console.warn(out);
+  else console.info(out);
+}
 
 /* ---------- helpers ---------- */
-function stripBOM(s) { return typeof s === "string" ? s.replace(/^\uFEFF/, "") : s; }
 async function readJSONSafe(file) {
-  try { return JSON.parse(stripBOM(await fs.readFile(file, "utf8"))); } catch { return {}; }
+  try { return JSON.parse(await fsp.readFile(file, "utf8")); } catch { return null; }
+}
+function* walkKV(obj, prefix = "") {
+  if (!obj || typeof obj !== "object") return;
+  for (const [k, v] of Object.entries(obj)) {
+    const p = prefix ? `${prefix}.${k}` : k;
+    yield [p, v];
+    if (v && typeof v === "object") yield* walkKV(v, p);
+  }
+}
+function likelyToken(str) {
+  // Heuristic: Discord tokens typically have 2 dots and are long-ish
+  return typeof str === "string" && str.includes(".") && str.split(".").length >= 3 && str.length >= 40;
 }
 
-/** Optional import helper (ESM, file URL safe). */
-async function tryImport(specOrUrl) {
-  try {
-    const mod = await import(specOrUrl instanceof URL ? specOrUrl.href : specOrUrl);
-    return mod?.default ?? mod;
-  } catch (err) {
-    const msg = String(err?.message || err || "");
-    if (msg.includes("Cannot find module") || err?.code === "ERR_MODULE_NOT_FOUND") {
-      log.warn({ spec: String(specOrUrl) }, "optional module not found; continuing");
-      return null;
+/* ---------- token resolver: env → .handoff/context.json (deep) → .env ---------- */
+async function resolveToken() {
+  // 1) env
+  const envTok = process.env.DISCORD_TOKEN || process.env.BOT_TOKEN;
+  if (envTok) return { token: envTok, source: "env", keyPath: "DISCORD_TOKEN|BOT_TOKEN" };
+
+  // 2) .handoff/context.json
+  const handoffPath = path.resolve(process.cwd(), ".handoff", "context.json");
+  const ctx = await readJSONSafe(handoffPath);
+  if (ctx) {
+    // a) common spots
+    const common =
+      ctx?.discord?.token ||
+      ctx?.bot?.token ||
+      ctx?.token ||
+      ctx?.DISCORD_TOKEN ||
+      ctx?.BOT_TOKEN ||
+      null;
+    if (common) return { token: common, source: handoffPath, keyPath: "common" };
+
+    // b) deep scan for any *token*-looking value
+    for (const [keyPath, val] of walkKV(ctx)) {
+      const keyLower = keyPath.toLowerCase();
+      if (keyLower.includes("token") && typeof val === "string" && val) {
+        return { token: val, source: handoffPath, keyPath };
+      }
+      if (likelyToken(val)) {
+        return { token: val, source: handoffPath, keyPath };
+      }
     }
-    log.warn({ err, spec: String(specOrUrl) }, "optional module failed to import; continuing");
-    return null;
   }
-}
 
-/* ---------- Anti-Nuke config + summary ---------- */
-
-const ANTINUKE_FILE = path.join(process.cwd(), "data", "antinuke-config.json");
-
-async function loadAntiNukeConfig() {
+  // 3) .env file
   try {
-    const raw = await fs.readFile(ANTINUKE_FILE, "utf8");
-    return JSON.parse(stripBOM(raw));
-  } catch {
-    return null; // missing or invalid file is fine
-  }
+    const envFile = await fsp.readFile(path.resolve(process.cwd(), ".env"), "utf8");
+    const lines = envFile.split(/\r?\n/);
+    for (const line of lines) {
+      const m = line.match(/^\s*(DISCORD_TOKEN|BOT_TOKEN)\s*=\s*(.+)\s*$/i);
+      if (m) return { token: m[2].trim(), source: ".env", keyPath: m[1] };
+    }
+  } catch {}
+
+  return { token: null, source: null, keyPath: null };
 }
 
-function mergeAntiNukeConfig(cfg, guildId) {
-  const defaults = (cfg && cfg.defaults) || {};
-  const guilds = (cfg && cfg.guilds) || {};
-  const override = guilds[guildId] || {};
-  return {
-    threshold: (override.threshold ?? defaults.threshold ?? 1),
-    weights: { ...(defaults.weights || {}), ...(override.weights || {}) },
-  };
-}
+/* ---------- optional ./wire.js loader (won't break startup) ---------- */
+async function tryWireOptional(client) {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const specPath = path.resolve(here, "wire.js");
+  const specUrl = pathToFileURL(specPath).href;
 
-async function printAntiNukeSummary(client, cfg) {
-  const guilds = client?.guilds?.cache ?? new Map();
-
-  console.log(`[startup] Anti-Nuke summary for ${guilds.size} guild(s):`);
-  for (const [, g] of guilds) {
-    const merged = mergeAntiNukeConfig(cfg, g?.id);
-    const weights = Object.entries(merged.weights || {})
-      .map(([k, v]) => `${k}:${v}`)
-      .join(", ") || "(none)";
-    console.log(`[startup][anti-nuke] "${g?.name ?? "Unknown"}" threshold=${merged.threshold} weights={ ${weights} }`);
-  }
-}
-
-/* ------------------------------------------------------------------------ */
-
-export async function startDiscord() {
-  const TOKEN = process.env.DISCORD_TOKEN || process.env.BOT_TOKEN;
-  if (!TOKEN) {
-    log.error("Missing DISCORD_TOKEN (or BOT_TOKEN). Bot will not start.");
+  if (!fs.existsSync(specPath)) {
+    jlog("warn", { msg: "optional wire.js not found; continuing", spec: specUrl });
     return;
   }
 
-  const client = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMembers,
-      GatewayIntentBits.GuildModeration,
-      GatewayIntentBits.GuildBans,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.GuildEmojisAndStickers,
-      GatewayIntentBits.GuildWebhooks,
-      GatewayIntentBits.MessageContent
-    ],
-    partials: [Partials.GuildMember, Partials.Message, Partials.Channel, Partials.Reaction],
-  });
+  try {
+    const mod = await import(specUrl);
+    const wireFn =
+      (typeof mod?.wire === "function" && mod.wire) ||
+      (mod?.default && typeof mod.default.wire === "function" && mod.default.wire);
 
-  // Optional wiring (won't crash if files are missing)
-  const wireSecurity = await tryImport(new URL("./wire-security.js", import.meta.url));
-  if (wireSecurity) {
-    try {
-      const fn = wireSecurity.wireSecurity ?? wireSecurity.execute ?? wireSecurity;
-      if (typeof fn === "function") await fn(client);
-    } catch (err) {
-      log.warn({ err }, "wireSecurity failed");
+    if (!wireFn) {
+      jlog("warn", { msg: "wire.js loaded but no `wire` export found", spec: specUrl, exports: Object.keys(mod || {}) });
+      return;
     }
+    await wireFn(client);
+    jlog("info", { msg: "wire.js imported and wired", spec: specUrl });
+  } catch (err) {
+    jlog("error", { msg: "wire.js import failed", error: String(err?.message || err), stack: err?.stack || null });
   }
-
-  const wire = await tryImport(new URL("./wire.js", import.meta.url));
-  if (wire) {
-    try {
-      const fn = wire.wire ?? wire.execute ?? wire;
-      if (typeof fn === "function") await fn(client);
-    } catch (err) {
-      log.warn({ err }, "wire (commands) failed");
-    }
-  }
-
-  // Use clientReady (v14 emits it; v15 will require it)
-  client.once("clientReady", async () => {
-    log.info({ user: client.user?.tag, id: client.user?.id }, "Discord client ready");
-    try {
-      client.user?.setPresence({
-        activities: [{ name: "Keeping your server safe", type: ActivityType.Watching }],
-        status: "online",
-      });
-    } catch {}
-
-    // Feature flag: startup summary (default ON unless explicitly false)
-    try {
-      const features = await readJSONSafe(path.join(process.cwd(), "data", "feature-flags.json"));
-      const startupOn = features.startupSummary !== false;
-
-      // Load + validate config once at boot
-      const rawCfg = await loadAntiNukeConfig();
-      let validated = { ok: true, errors: [], warnings: [], cfg: rawCfg };
-      if (rawCfg) {
-        validated = validateAntiNukeConfig(rawCfg);
-        for (const e of validated.errors) log.warn({ msg: e }, "antinuke-config error");
-        for (const w of validated.warnings) log.warn({ msg: w }, "antinuke-config warning");
-      }
-
-      if (startupOn) await printAntiNukeSummary(client, validated.cfg);
-    } catch (err) {
-      log.warn({ err }, "Anti-Nuke startup summary failed");
-    }
-  });
-
-  await client.login(TOKEN);
 }
 
-/* --- correct “main module” check for Windows paths with spaces --- */
-try {
-  const isEntry =
-    typeof process.argv[1] === "string" &&
-    import.meta.url === pathToFileURL(process.argv[1]).href;
+/* ---------- boot ---------- */
+const { token: TOKEN, source: TOKEN_SRC, keyPath: TOKEN_KEY } = await resolveToken();
 
-  if (isEntry) {
-    startDiscord();
-  }
-} catch {
-  // Safer default for CLI usage
-  startDiscord();
+jlog("info", {
+  msg: "starting discord client",
+  node: process.version,
+  host: os.hostname(),
+  pid: process.pid,
+  tokenSource: TOKEN_SRC || "none",
+  tokenKeyPath: TOKEN_KEY || "n/a",
+  tokenTail: redact(TOKEN),
+});
+
+if (!TOKEN) {
+  jlog("error", { msg: "No token found (env/.handoff/.env). Make sure handoff wrote the token or set DISCORD_TOKEN." });
+  process.exit(1);
+}
+
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildModeration,
+    GatewayIntentBits.GuildMessages,
+  ],
+  partials: [Partials.Channel, Partials.GuildMember],
+  sweepers: { messages: { interval: 300, lifetime: 900 } },
+  rest: { retries: 3, timeout: 20_000 },
+});
+
+client.setMaxListeners?.(50);
+
+process.on("unhandledRejection", (err) => jlog("error", { msg: "unhandledRejection", error: String(err) }));
+process.on("uncaughtException", (err) => jlog("error", { msg: "uncaughtException", error: String(err?.message || err), stack: err?.stack || null }));
+
+client.once("ready", async () => {
+  jlog("info", { msg: "Discord client ready", user: client.user?.tag, id: client.user?.id ? `[id:${client.user.id}]` : null, guilds: client.guilds.cache.size });
+  await tryWireOptional(client);       // load your rich wiring (diag/ping/ids/wh/etc)
+  client.emit?.("clientReady");        // keep your wire.js compatibility
+});
+
+try {
+  await client.login(TOKEN);
+  jlog("info", { msg: "login() resolved" });
+} catch (err) {
+  jlog("error", { msg: "login() failed", error: String(err?.message || err) });
+  process.exit(1);
 }

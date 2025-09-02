@@ -1,21 +1,23 @@
-﻿{
-    "discordWiring":  true,
-    "startupSummary":  false,
-    "slashDiag":  true,
-    "slashPing":  true,
-    "slashUptime":  true,
-    "pingThresholds":  {
-                           "wsWarn":  150,
-                           "wsCrit":  300,
-                           "apiWarn":  500,
-                           "apiCrit":  1000
-                       },
-    "slashIds":  true,
-    "securityLogToChannel":  true,
-    "enforce":  {
-                    "massGuard":  false
-                },
-    "slashFeatures":  true,
-    "slashRestorePreview":  true,
-    "restorePreviewToChannel":  true
+{
+  "slashDiag": true,
+  "slashPing": true,
+  "slashUptime": true,
+  "slashIds": true,
+
+  "slashFeatures": true,
+  "slashRestorePreview": true,
+  "slashSnapdiff": true,
+
+  "slashWebhookTest": true,   
+
+  "startupSummary": true,
+  "securityLogToChannel": true,
+
+  "enforce": { "massGuard": false },
+  "enforceCooldownEnabled": true,
+  "enforceCooldownMinutes": 5,
+
+  "pingThresholds": { "wsWarn": 150, "wsCrit": 300, "apiWarn": 500, "apiCrit": 1000 },
+  "slashSetlog": true,
+  "slashLogtest": true
 }

@@ -1,0 +1,10 @@
+{
+  "raidCorrEnabled": true,
+  "raidCorrWindowMs": 120000,
+  "raidCorrMinJoins": 6,
+  "raidCorrMinNewRatio": 0.5,
+  "raidCorrMinDangerEvents": 3,
+  "raidCorrLockMinutes": 15,
+  "raidCorrRespectExemptions": true,
+  "raidCorrEnforceLock": true
+}

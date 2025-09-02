@@ -1,110 +1,78 @@
 // utils/validate-antinuke-config.js
-// Lightweight validator for data/antinuke-config.json.
-// - Warns on typos/unknown weight keys
-// - Validates types and obvious mistakes
-// - Never throws; returns { ok, errors, warnings, cfg }
+// Validate antinuke-config.json structure & values.
 
-const SNOWFLAKE_RE = /^\d{17,20}$/;
-
-// Expandable list of known signal keys. Unknowns will warn but are allowed.
-const KNOWN_WEIGHT_KEYS = new Set([
+const ALLOWED_TOP = new Set(["defaults", "guilds"]);
+const ALLOWED_EVENTS = new Set([
   "channelDelete",
   "roleDelete",
+  "webhookDelete",
+  "guildBanAdd",
+  "emojiDelete",
+  "guildUpdate",
+  "roleUpdate",
   "channelCreate",
   "roleCreate",
   "webhookCreate",
-  "webhookDelete",
-  // keep space for future signals:
-  "emojiCreate",
-  "emojiDelete",
-  "channelUpdatePermDiff",
-  "roleUpdatePermDiff",
-  "guildMemberAddBotGuard"
+  "channelUpdate" // NEW
 ]);
 
-function isObject(o) {
-  return o && typeof o === "object" && !Array.isArray(o);
-}
+function isObj(v) { return v && typeof v === "object" && !Array.isArray(v); }
+function isNum(v) { return typeof v === "number" && Number.isFinite(v); }
 
-function validateWeights(weights, where, warnings, errors) {
-  if (weights == null) return;
-  if (!isObject(weights)) {
-    errors.push(`${where}: "weights" must be an object`);
-    return;
-  }
-  const keys = Object.keys(weights);
-  if (keys.length === 0) {
-    warnings.push(`${where}: "weights" is empty`);
-  }
-  for (const k of keys) {
-    if (!KNOWN_WEIGHT_KEYS.has(k)) {
-      warnings.push(`${where}: unknown weight key "${k}" (will be used, but check for typos)`);
+function checkWeights(weights, path, errors, warnings) {
+  if (!isObj(weights)) { errors.push(`${path}: weights must be an object`); return; }
+  for (const [k, v] of Object.entries(weights)) {
+    if (!ALLOWED_EVENTS.has(k)) {
+      warnings.push(`${path}: unknown weight key "${k}" (allowed: ${[...ALLOWED_EVENTS].join(", ")})`);
     }
-    const v = weights[k];
-    if (typeof v !== "number" || !Number.isFinite(v)) {
-      errors.push(`${where}: weight "${k}" must be a finite number`);
-      continue;
+    if (!isNum(v) || v < 0) {
+      errors.push(`${path}.${k}: weight must be a non-negative number`);
     }
-    if (v < 0) warnings.push(`${where}: weight "${k}" is negative (${v}); consider >= 0`);
-    if (v > 5) warnings.push(`${where}: weight "${k}"=${v} is large; typical range is 0..1`);
   }
 }
 
-export function validateAntiNukeConfig(input) {
+export function validateAntiNukeConfig(cfg) {
   const errors = [];
   const warnings = [];
 
-  if (input == null) {
-    return { ok: true, errors, warnings, cfg: null };
-  }
-  if (!isObject(input)) {
-    errors.push(`top-level: config must be an object`);
+  if (!isObj(cfg)) {
+    errors.push("config must be an object");
     return { ok: false, errors, warnings, cfg: null };
   }
 
-  const cfg = { ...input };
-
-  // defaults
-  if (cfg.defaults != null) {
-    if (!isObject(cfg.defaults)) {
-      errors.push(`defaults: must be an object`);
-    } else {
-      if (cfg.defaults.threshold != null) {
-        const t = cfg.defaults.threshold;
-        if (typeof t !== "number" || !Number.isFinite(t)) {
-          errors.push(`defaults.threshold must be a finite number`);
-        } else if (t < 0) {
-          warnings.push(`defaults.threshold is negative (${t}); consider >= 0`);
-        }
-      }
-      validateWeights(cfg.defaults.weights, "defaults", warnings, errors);
+  // Unknown top-level keys
+  for (const k of Object.keys(cfg)) {
+    if (!ALLOWED_TOP.has(k)) {
+      warnings.push(`unknown top-level key "${k}" (allowed: defaults, guilds)`);
     }
-  } else {
-    warnings.push(`defaults: missing; using implicit threshold=1 and no weights`);
   }
 
-  // guilds
-  if (cfg.guilds != null) {
-    if (!isObject(cfg.guilds)) {
-      errors.push(`guilds: must be an object mapping guildId -> overrides`);
-    } else {
-      for (const [gid, ov] of Object.entries(cfg.guilds)) {
-        if (!SNOWFLAKE_RE.test(gid)) {
-          warnings.push(`guilds["${gid}"]: not a typical Discord snowflake id (17-20 digits)`);
-        }
-        if (!isObject(ov)) {
-          errors.push(`guilds["${gid}"]: override must be an object`);
-          continue;
-        }
-        if (ov.threshold != null) {
-          const t = ov.threshold;
-          if (typeof t !== "number" || !Number.isFinite(t)) {
-            errors.push(`guilds["${gid}"].threshold must be a finite number`);
-          } else if (t < 0) {
-            warnings.push(`guilds["${gid}"].threshold is negative (${t}); consider >= 0`);
-          }
-        }
-        validateWeights(ov.weights, `guilds["${gid}"]`, warnings, errors);
+  // defaults
+  if (cfg.defaults) {
+    if (!isObj(cfg.defaults)) { errors.push("defaults must be an object"); }
+    const t = cfg.defaults?.threshold;
+    if (t !== undefined && (!isNum(t) || t < 0)) {
+      errors.push("defaults.threshold must be a non-negative number");
+    }
+    if (cfg.defaults?.weights) {
+      checkWeights(cfg.defaults.weights, "defaults.weights", errors, warnings);
+    }
+  }
+
+  // guild overrides
+  if (cfg.guilds) {
+    if (!isObj(cfg.guilds)) { errors.push("guilds must be an object mapping guildId -> override"); }
+    for (const [gid, ov] of Object.entries(cfg.guilds || {})) {
+      if (!/^\d{17,20}$/.test(gid)) {
+        warnings.push(`guilds["${gid}"]: not a typical Discord snowflake id (17-20 digits)`);
+      }
+      if (!isObj(ov)) { errors.push(`guilds["${gid}"] must be an object`); continue; }
+      const t = ov.threshold;
+      if (t !== undefined && (!isNum(t) || t < 0)) {
+        errors.push(`guilds["${gid}"].threshold must be a non-negative number`);
+      }
+      if (ov.weights) {
+        checkWeights(ov.weights, `guilds["${gid}"].weights`, errors, warnings);
       }
     }
   }

@@ -9,7 +9,8 @@
 //   channelDelete, roleDelete, webhookDelete,
 //   guildBanAdd, emojiDelete,
 //   guildUpdate, roleUpdate,
-//   channelCreate, roleCreate, webhookCreate
+//   channelCreate, roleCreate, webhookCreate,
+//   channelUpdate   // NEW
 //
 // Notes:
 // - Per-guild overrides are applied when you pass --guild <id>.
@@ -19,10 +20,7 @@
 import "dotenv/config";
 import { AntiNukeDirector } from "../modules/antinuke/director.js";
 
-function print(obj) {
-  process.stdout.write(JSON.stringify(obj, null, 2) + "\n");
-}
-
+function print(obj) { process.stdout.write(JSON.stringify(obj, null, 2) + "\n"); }
 function fail(msg, extra = {}) {
   const out = { ok: false, error: msg, ...extra };
   process.stderr.write(JSON.stringify(out, null, 2) + "\n");
@@ -36,26 +34,13 @@ function parseArgs(argv = process.argv.slice(2)) {
     const a = argv[i];
     if (a.startsWith("--")) {
       const eq = a.indexOf("=");
-      if (eq !== -1) {
-        const key = a.slice(2, eq);
-        const val = a.slice(eq + 1);
-        flags[key] = val;
-      } else {
-        const key = a.slice(2);
-        const next = argv[i + 1];
-        if (next && !next.startsWith("-")) {
-          flags[key] = next;
-          i++;
-        } else {
-          flags[key] = true;
-        }
+      if (eq !== -1) { flags[a.slice(2, eq)] = a.slice(eq + 1); }
+      else {
+        const key = a.slice(2), next = argv[i + 1];
+        if (next && !next.startsWith("-")) { flags[key] = next; i++; }
+        else { flags[key] = true; }
       }
-    } else if (a.startsWith("-")) {
-      // short flags not used; treat as positional for simplicity
-      positional.push(a);
-    } else {
-      positional.push(a);
-    }
+    } else { positional.push(a); }
   }
   return { positional, flags };
 }
@@ -71,30 +56,24 @@ Examples:
   node cli/cli.js ping
   node cli/cli.js antinuke status --guild 123456789012345678
   node cli/cli.js antinuke simulate channelDelete 2 --guild 123456789012345678
-`;
+`.trim();
 }
 
 async function main() {
   const { positional, flags } = parseArgs();
   const cmd = positional[0];
+  if (!cmd) { fail("Missing command. See usage.", { usage: usage() }); return; }
 
-  if (!cmd) {
-    fail("Missing command. See usage.", { usage: usage().trim() });
-    return;
-  }
-
-  // Single director per process; applies per-guild overrides.
   const director = new AntiNukeDirector();
 
   if (cmd === "ping") {
     print({ ok: true, cmd: "ping", node: process.version, ts: Date.now() });
     return;
-  }
+    }
 
   if (cmd === "antinuke") {
     const sub = positional[1];
     const guildId = String(flags.guild || "cli-default");
-
     const svc = director.forGuild(guildId);
 
     if (sub === "status") {
@@ -107,39 +86,24 @@ async function main() {
       const eventType = positional[2];
       const countRaw = positional[3];
 
-      if (!eventType) {
-        fail("Missing <eventType> for simulate.", { usage: usage().trim() });
-        return;
-      }
-      if (!countRaw || Number.isNaN(Number(countRaw))) {
-        fail("Missing or invalid <count> for simulate.", { usage: usage().trim() });
-        return;
-      }
+      if (!eventType) { fail("Missing <eventType> for simulate.", { usage: usage() }); return; }
+      if (!countRaw || Number.isNaN(Number(countRaw))) { fail("Missing or invalid <count> for simulate.", { usage: usage() }); return; }
 
       try {
         const status = svc.simulate(eventType, Number(countRaw));
-        print({
-          ok: true,
-          cmd: "antinuke simulate",
-          guildId,
-          eventType,
-          count: Number(countRaw),
-          ...status
-        });
+        print({ ok: true, cmd: "antinuke simulate", guildId, eventType, count: Number(countRaw), ...status });
         return;
       } catch (err) {
-        fail(`Unsupported eventType: ${eventType}`, {
-          supported: svc.supportedEvents(),
-        });
+        fail(`Unsupported eventType: ${eventType}`, { supported: svc.supportedEvents() });
         return;
       }
     }
 
-    fail("Unknown antinuke subcommand. See usage.", { usage: usage().trim() });
+    fail("Unknown antinuke subcommand. See usage.", { usage: usage() });
     return;
   }
 
-  fail("Unknown command. See usage.", { usage: usage().trim() });
+  fail("Unknown command. See usage.", { usage: usage() });
 }
 
 main().catch((err) => {

@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "roman-bot://schemas/exemptions.schema.json",
+  "title": "Roman Bot Exemptions",
+  "description": "Per-user/role/guild exemptions for security actions. Use \"*\" to exempt from all actions.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Local path to the JSON schema (for editors like VS Code)."
+    },
+    "notes": { "type": "string" },
+    "users": { "$ref": "#/definitions/idMap" },
+    "roles": { "$ref": "#/definitions/idMap" },
+    "guilds": {
+      "type": "object",
+      "description": "Per-guild overrides of user/role exemptions.",
+      "patternProperties": {
+        "^[0-9]{5,}$": { "$ref": "#/definitions/guildEntry" }
+      },
+      "additionalProperties": false,
+      "default": {}
+    }
+  },
+  "additionalProperties": false,
+  "required": [],
+  "definitions": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "*",
+        "antiSpam",
+        "massGuard",
+        "permDiff",
+        "autoRestore",
+        "botGuard",
+        "ownerProtection"
+      ],
+      "description": "Use '*' to exempt from all actions."
+    },
+    "actions": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/action" },
+      "uniqueItems": true,
+      "default": []
+    },
+    "idMap": {
+      "type": "object",
+      "description": "Map of Discord IDs to action lists.",
+      "patternProperties": {
+        "^[0-9]{5,}$": { "$ref": "#/definitions/actions" }
+      },
+      "additionalProperties": false,
+      "default": {}
+    },
+    "guildEntry": {
+      "type": "object",
+      "properties": {
+        "users": { "$ref": "#/definitions/idMap" },
+        "roles": { "$ref": "#/definitions/idMap" }
+      },
+      "additionalProperties": false,
+      "default": { "users": {}, "roles": {} }
+    }
+  },
+  "examples": [
+    {
+      "notes": "Example exemptions",
+      "users": { "1378113490040000622": ["*"] },
+      "roles": {},
+      "guilds": {
+        "1386322665635184680": {
+          "users": {},
+          "roles": {}
+        }
+      }
+    }
+  ]
+}

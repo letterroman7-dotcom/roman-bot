@@ -1,0 +1,16 @@
+{
+    "enabled":  true,
+    "respectExemptions":  true,
+    "allow":  {
+                  "channelIds":  [
+                                     "1411875952396341278",
+                                     "1411905686840934531"
+                                 ]
+              },
+    "enforce":  {
+                    "autoDeleteRogueWebhook":  true,
+                    "punishAction":  "none"
+                },
+    "auditLookbackMs":  15000,
+    "logLevel":  "debug"
+}

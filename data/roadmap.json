@@ -1,0 +1,35 @@
+{
+  "phases": [
+    {
+      "key": "defense",
+      "title": "Defense",
+      "items": [
+        { "key": "joingate",     "title": "Join-Gate / Soft-Lock Raids", "status": "shipped" },
+        { "key": "raidcorr",     "title": "Raid Correlation",            "status": "shipped" },
+        { "key": "antinuke",     "title": "Anti-Nuke (Mass Actions)",    "status": "partial", "note": "Preview/alert-only; enforce next" },
+        { "key": "whguard",      "title": "Webhook Guard",               "status": "shipped" },
+        { "key": "snapshots",    "title": "Snapshot Store",              "status": "shipped" },
+        { "key": "restoreapply", "title": "Restore-Apply",               "status": "partial", "note": "Overwrites apply shipped; fields next" }
+      ]
+    },
+    {
+      "key": "ops",
+      "title": "Ops & Hygiene",
+      "items": [
+        { "key": "securitylog",  "title": "Security Logging",            "status": "shipped" },
+        { "key": "adminslash",   "title": "Admin Slash Ops",             "status": "shipped" },
+        { "key": "flags",        "title": "Config & Flags",              "status": "shipped" },
+        { "key": "perf",         "title": "Performance Hygiene",         "status": "shipped" }
+      ]
+    },
+    {
+      "key": "future",
+      "title": "Future",
+      "items": [
+        { "key": "exemptions",   "title": "Exemptions/Safelists",        "status": "todo" },
+        { "key": "incident",     "title": "Incident Reporting",          "status": "todo" },
+        { "key": "dashboard",    "title": "Dashboard / UI",              "status": "todo" }
+      ]
+    }
+  ]
+}

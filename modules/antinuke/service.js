@@ -11,13 +11,15 @@ export const DEFAULT_CONFIG = {
     webhookDelete: 0.5,
     guildBanAdd: 0.5,
     emojiDelete: 0.5,
-    // tiny, low-noise signals:
+    // low-noise signals
     guildUpdate: 0.1,
     roleUpdate: 0.1,
-    // creations = lower weight noise
+    // creations = lower weight
     channelCreate: 0.2,
     roleCreate: 0.2,
-    webhookCreate: 0.2
+    webhookCreate: 0.2,
+    // NEW: track permission changes on channels
+    channelUpdate: 0.2
   }
 };
 

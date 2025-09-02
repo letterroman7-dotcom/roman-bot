@@ -1,22 +1,14 @@
-﻿{
-    "$schema":  "https://example.invalid/roman-bot/exemptions.schema.json",
-    "notes":  "Actions: antiSpam, massGuard, permDiff, autoRestore, botGuard, ownerProtection. Use \"*\" for all actions.",
-    "users":  {
-                  "1378113490040000622":  [
-                                              "*"
-                                          ]
-              },
-    "roles":  {
-
-              },
-    "guilds":  {
-                   "1386322665635184680":  {
-                                               "users":  {
-
-                                                         },
-                                               "roles":  {
-
-                                                         }
-                                           }
-               }
+{
+  "$schema": "../schemas/exemptions.schema.json",
+  "notes": "Actions: antiSpam, massGuard, permDiff, autoRestore, botGuard, ownerProtection. Use \"*\" for all actions.",
+  "users": {
+    "1378113490040000622": ["*"]
+  },
+  "roles": {},
+  "guilds": {
+    "1386322665635184680": {
+      "users": {},
+      "roles": {}
+    }
+  }
 }

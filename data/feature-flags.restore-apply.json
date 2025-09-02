@@ -1,0 +1,5 @@
+{
+  "restoreApplyEnabled": true,
+  "restoreApplyDryRunDefault": true,
+  "restoreApplyMaxChanges": 75
+}
