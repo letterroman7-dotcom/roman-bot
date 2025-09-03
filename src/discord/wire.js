@@ -6,6 +6,7 @@
 // NEW: wires perf add-on (once) with /perf stats|json.
 // NEW: /help (lists enabled commands based on feature flags; ephemeral)
 // NEW: /webhookv2 (status; ephemeral, only if utils/webhook-guard-v2.js exists)
+// NEW: /permcheck (ephemeral) — report effective perms for enforcement in this channel
 
 import path from "node:path";
 import fs from "node:fs/promises";
@@ -109,6 +110,7 @@ export async function wire(client) {
       const allowLogtest  = normBool(features.slashLogtest, true);
       const allowHelp     = normBool(features.slashHelp, true);               // NEW
       const allowWebhookV2= normBool(features.slashWebhookV2Status, true);    // NEW
+      const allowPermcheck= normBool(features.slashPermcheck, true);          // NEW
 
       const th = Object.assign({ wsWarn:150, wsCrit:300, apiWarn:500, apiCrit:1000 }, features.pingThresholds || {});
 
@@ -123,7 +125,7 @@ export async function wire(client) {
             startupSummary: !!features.startupSummary,
             slashDiag: allowDiag, slashPing: allowPing, slashUptime: allowUptime, slashIds: allowIds,
             slashFeatures: allowFeatures, slashRestorePreview: allowRestore, slashSnapdiff: allowSnapdiff, slashWebhookTest: allowWh,
-            slashSetlog: allowSetlog, slashLogtest: allowLogtest, slashHelp: allowHelp, slashWebhookV2Status: allowWebhookV2
+            slashSetlog: allowSetlog, slashLogtest: allowLogtest, slashHelp: allowHelp, slashWebhookV2Status: allowWebhookV2, slashPermcheck: allowPermcheck
           },
           env: { DISCORD_TOKEN: redact(process.env.DISCORD_TOKEN || process.env.BOT_TOKEN) }
         };
@@ -171,7 +173,7 @@ export async function wire(client) {
           slash: {
             diag: allowDiag, ping: allowPing, uptime: allowUptime, ids: allowIds, features: allowFeatures,
             restorepreview: allowRestore, snapdiff: allowSnapdiff, webhookTest: allowWh,
-            setlog: allowSetlog, logtest: allowLogtest, help: allowHelp, webhookV2Status: allowWebhookV2
+            setlog: allowSetlog, logtest: allowLogtest, help: allowHelp, webhookV2Status: allowWebhookV2, permcheck: allowPermcheck
           },
           antiNuke: {
             enabled: !!limiter.enabled,
@@ -203,7 +205,7 @@ export async function wire(client) {
         if (allowSetlog) list.push("/setlog – set moderation log channel");
         if (allowLogtest) list.push("/logtest – send a test message to the log channel");
         if (allowWebhookV2) list.push("/webhookv2 – show Webhook Guard v2 status");
-
+        if (allowPermcheck) list.push("/permcheck – show enforcement perms in this channel");
         const payload = { commands: list };
         await i.reply({ content: "```json\n" + JSON.stringify(payload, null, 2).slice(0,1900) + "\n```", flags: MessageFlags.Ephemeral });
         return;
@@ -211,7 +213,10 @@ export async function wire(client) {
 
       // NEW: /webhookv2 — status (ephemeral; safe if loader/file missing)
       if (i.commandName === "webhookv2" && allowWebhookV2) {
-        const utilsHit = await tryImport(["../../utils/webhook-guard-v2.js"]);
+        const utilsHit = await tryImport([
+          "../../utils/webhook-guard-v2.js",
+          "../utils/webhook-guard-v2.js"
+        ]);
         if (!utilsHit) {
           await i.reply({ content: "Webhook Guard v2 not available on this build.", flags: MessageFlags.Ephemeral });
           return;
@@ -220,11 +225,10 @@ export async function wire(client) {
         try {
           const { loadConfig } = utilsHit.mod;
           cfg = loadConfig();
-        } catch (err) {
+        } catch {
           await i.reply({ content: "Failed to read v2 config.", flags: MessageFlags.Ephemeral });
           return;
         }
-
         const summary = {
           available: true,
           enabled: !!cfg.enabled,
@@ -239,6 +243,45 @@ export async function wire(client) {
           }
         };
         await i.reply({ content: "```json\n" + JSON.stringify(summary, null, 2).slice(0,1900) + "\n```", flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      // NEW: /permcheck — show if v2 can enforce deletes in this channel
+      if (i.commandName === "permcheck" && allowPermcheck) {
+        if (!i.inGuild()) { await i.reply({ content: "Guild only.", flags: MessageFlags.Ephemeral }); return; }
+        const target = i.options.getChannel?.("channel") || i.channel;
+        const me = i.guild.members.me || await i.guild.members.fetch(client.user.id).catch(()=>null);
+        const chPerms = target?.permissionsFor?.(me) || null;
+        const guildPerms = me?.permissions || null;
+
+        // Try to read v2 allowlist
+        let v2 = { available:false, enabled:false, allowlisted:false };
+        const utilsHit = await tryImport(["../../utils/webhook-guard-v2.js","../utils/webhook-guard-v2.js"]);
+        if (utilsHit) {
+          try {
+            const { loadConfig } = utilsHit.mod;
+            const cfg = loadConfig();
+            v2.available = true;
+            v2.enabled = !!cfg.enabled;
+            v2.allowlisted = !!cfg.allowlist?.channelIds?.includes?.(target?.id);
+          } catch {}
+        }
+
+        const perms = {
+          viewChannel: !!chPerms?.has?.("ViewChannel"),
+          manageWebhooks: !!chPerms?.has?.("ManageWebhooks"),
+          viewAuditLog: !!guildPerms?.has?.("ViewAuditLog")
+        };
+        const enforcePossible = v2.enabled && perms.viewChannel && perms.manageWebhooks && perms.viewAuditLog && !v2.allowlisted;
+
+        const payload = {
+          channelId: target?.id || null,
+          bot: client.user?.tag,
+          v2,
+          perms,
+          enforcePossible
+        };
+        await i.reply({ content: "```json\n" + JSON.stringify(payload, null, 2).slice(0,1900) + "\n```", flags: MessageFlags.Ephemeral });
         return;
       }
 
@@ -410,8 +453,9 @@ export async function wire(client) {
       const wantWh       = normBool(features.slashWebhookTest, false);
       const wantSetlog   = normBool(features.slashSetlog, true);
       const wantLogtest  = normBool(features.slashLogtest, true);
-      const wantHelp     = normBool(features.slashHelp, true);               // NEW
-      const wantWebhookV2= normBool(features.slashWebhookV2Status, true);    // NEW
+      const wantHelp     = normBool(features.slashHelp, true);
+      const wantWebhookV2= normBool(features.slashWebhookV2Status, true);
+      const wantPermcheck= normBool(features.slashPermcheck, true); // NEW
 
       const defs = [];
       if (wantDiag)     defs.push({ name: "diag",     description: "Show bot diagnostics (ephemeral)",            dm_permission: false });
@@ -491,6 +535,17 @@ export async function wire(client) {
           name: "webhookv2",
           description: "Show Webhook Guard v2 status (ephemeral)",
           dm_permission: false
+        });
+      }
+
+      if (wantPermcheck) {
+        defs.push({
+          name: "permcheck",
+          description: "Show if v2 can enforce in this channel (ephemeral)",
+          dm_permission: false,
+          options: [
+            { type: 7, name: "channel", description: "Channel to check (defaults to here)", required: false }
+          ]
         });
       }
 
