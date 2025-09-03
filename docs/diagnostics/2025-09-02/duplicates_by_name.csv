@@ -1,0 +1,4 @@
+FileName,Count,Paths
+.gitignore,2,"['.gitignore', 'data\\snapshots\\.gitignore']"
+index.js,2,"['index.js', 'src\\discord\\addons\\index.js']"
+wire-join-gate.js,2,"['wire-join-gate.js', 'src\\discord\\wire-join-gate.js']"
