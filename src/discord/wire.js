@@ -3,6 +3,9 @@
 // Replies are privacy-safe and ephemeral via MessageFlags.Ephemeral.
 // Adds: /wh (webhook test helper) gated by feature flag "slashWebhookTest": true.
 // NEW: /setlog and /logtest for moderation log channel.
+// NEW: wires perf add-on (once) with /perf stats|json.
+// NEW: /help (lists enabled commands based on feature flags; ephemeral)
+// NEW: /webhookv2 (status; ephemeral, only if utils/webhook-guard-v2.js exists)
 
 import path from "node:path";
 import fs from "node:fs/promises";
@@ -12,8 +15,15 @@ import { getChannelSnapshot, getRoleSnapshot, snapshotCounts } from "../../utils
 import { formatChannelSnapshot, formatRoleSnapshot } from "../../utils/snapshot-format.js";
 import { diffChannel, diffRole, summarizeDiff } from "../../utils/snapshot-diff.js";
 
-// 🔹 Add-ons (Join-Gate, Restore-Apply, Raid-Correlation, Plan)
-import { wireJoinGateV1, wireRestoreApplyV1, wireRaidCorrelationV1, wirePlanV1 } from "./addons/index.js";
+// 🔹 Add-ons (Join-Gate, Restore-Apply, Raid-Correlation, Plan, Anti-Nuke, Perf)
+import {
+  wireJoinGateV1,
+  wireRestoreApplyV1,
+  wireRaidCorrelationV1,
+  wirePlanV1,
+  wireAntiNukeV1,
+  wirePerfV1,          // ✅ added
+} from "./addons/index.js";
 
 // ❗ Lazy-import log-config so a missing helper never breaks startup
 let __logCfgCached = null;
@@ -47,6 +57,17 @@ function memSnapshot(){const mu=process.memoryUsage();const mb=n=>Math.round((n/
 function evalStatus(ws,api,th){let st="ok";if(ws>=th.wsCrit||api>=th.apiCrit)st="crit";else if(ws>=th.wsWarn||api>=th.apiWarn)st="warn";return st}
 function isTextLike(ch){ return ch?.type === 0 || ch?.type === 5; } // guild text or announcement
 
+// 🔹 Guarded dynamic import helper (relative to THIS file)
+async function tryImport(relCandidates) {
+  for (const rel of relCandidates) {
+    try {
+      const mod = await import(new URL(rel, import.meta.url));
+      return { mod, rel };
+    } catch {}
+  }
+  return null;
+}
+
 /* ---------- main wiring ---------- */
 export async function wire(client) {
   // Relax EventEmitter listener cap to avoid MaxListeners warnings across add-ons
@@ -57,6 +78,8 @@ export async function wire(client) {
   try { await wireRestoreApplyV1(client); } catch {}
   try { await wireRaidCorrelationV1(client); } catch {}
   try { await wirePlanV1(client); } catch {}
+  try { await wireAntiNukeV1(client); } catch {}
+  try { await wirePerfV1(client); } catch {}       // ✅ added (single call)
 
   // 🔹 Webhook guards (dynamic import so boot never dies if optional)
   try {
@@ -84,6 +107,8 @@ export async function wire(client) {
       // NEW flags
       const allowSetlog   = normBool(features.slashSetlog, true);
       const allowLogtest  = normBool(features.slashLogtest, true);
+      const allowHelp     = normBool(features.slashHelp, true);               // NEW
+      const allowWebhookV2= normBool(features.slashWebhookV2Status, true);    // NEW
 
       const th = Object.assign({ wsWarn:150, wsCrit:300, apiWarn:500, apiCrit:1000 }, features.pingThresholds || {});
 
@@ -98,7 +123,7 @@ export async function wire(client) {
             startupSummary: !!features.startupSummary,
             slashDiag: allowDiag, slashPing: allowPing, slashUptime: allowUptime, slashIds: allowIds,
             slashFeatures: allowFeatures, slashRestorePreview: allowRestore, slashSnapdiff: allowSnapdiff, slashWebhookTest: allowWh,
-            slashSetlog: allowSetlog, slashLogtest: allowLogtest
+            slashSetlog: allowSetlog, slashLogtest: allowLogtest, slashHelp: allowHelp, slashWebhookV2Status: allowWebhookV2
           },
           env: { DISCORD_TOKEN: redact(process.env.DISCORD_TOKEN || process.env.BOT_TOKEN) }
         };
@@ -131,7 +156,8 @@ export async function wire(client) {
 
       if (i.commandName === "features" && allowFeatures) {
         const ff = await readJSONSafe(path.join(process.cwd(), "data", "feature-flags.json"));
-        const cfg = await readJSONSafe(path.join(process.cwd(), "data", "antinuke-config.json"));
+        const limiter = await readJSONSafe(path.join(process.cwd(), "data", "antinuke-limiter.json"));
+
         const enforcing = !!(ff?.enforce?.massGuard === true);
         const summary = {
           enforce: {
@@ -145,9 +171,72 @@ export async function wire(client) {
           slash: {
             diag: allowDiag, ping: allowPing, uptime: allowUptime, ids: allowIds, features: allowFeatures,
             restorepreview: allowRestore, snapdiff: allowSnapdiff, webhookTest: allowWh,
-            setlog: allowSetlog, logtest: allowLogtest
+            setlog: allowSetlog, logtest: allowLogtest, help: allowHelp, webhookV2Status: allowWebhookV2
           },
-          antiNukeDefaults: { threshold: cfg?.defaults?.threshold ?? 1, weights: cfg?.defaults?.weights || {} }
+          antiNuke: {
+            enabled: !!limiter.enabled,
+            windowMs: Number.isFinite(Number(limiter.windowMs)) ? Number(limiter.windowMs) : 30000,
+            threshold: Number.isFinite(Number(limiter.threshold)) ? Number(limiter.threshold) : 3,
+            enforce: {
+              enabled: !!(limiter?.enforce?.enabled),
+              softLockMinutes: Number.isFinite(Number(limiter?.enforce?.softLockMinutes)) ? Number(limiter.enforce.softLockMinutes) : 15
+            },
+            respectExemptions: limiter?.respectExemptions !== false,
+            weights: limiter?.weights || {}
+          }
+        };
+        await i.reply({ content: "```json\n" + JSON.stringify(summary, null, 2).slice(0,1900) + "\n```", flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      // NEW: /help — list available commands based on feature flags (ephemeral)
+      if (i.commandName === "help" && allowHelp) {
+        const list = [];
+        if (allowDiag) list.push("/diag – diagnostics (ephemeral)");
+        if (allowPing) list.push("/ping – latency & uptime (ephemeral)");
+        if (allowUptime) list.push("/uptime – start time & uptime (ephemeral)");
+        if (allowIds) list.push("/ids – guild/channel/user IDs (ephemeral)");
+        if (allowFeatures) list.push("/features – feature flags summary (ephemeral)");
+        if (allowRestore) list.push("/restorepreview – show cached snapshot or counts");
+        if (allowSnapdiff) list.push("/snapdiff – diff live channel/role vs snapshot");
+        if (allowWh) list.push("/wh – webhook helper (create/update/delete)");
+        if (allowSetlog) list.push("/setlog – set moderation log channel");
+        if (allowLogtest) list.push("/logtest – send a test message to the log channel");
+        if (allowWebhookV2) list.push("/webhookv2 – show Webhook Guard v2 status");
+
+        const payload = { commands: list };
+        await i.reply({ content: "```json\n" + JSON.stringify(payload, null, 2).slice(0,1900) + "\n```", flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      // NEW: /webhookv2 — status (ephemeral; safe if loader/file missing)
+      if (i.commandName === "webhookv2" && allowWebhookV2) {
+        const utilsHit = await tryImport(["../../utils/webhook-guard-v2.js"]);
+        if (!utilsHit) {
+          await i.reply({ content: "Webhook Guard v2 not available on this build.", flags: MessageFlags.Ephemeral });
+          return;
+        }
+        let cfg = {};
+        try {
+          const { loadConfig } = utilsHit.mod;
+          cfg = loadConfig();
+        } catch (err) {
+          await i.reply({ content: "Failed to read v2 config.", flags: MessageFlags.Ephemeral });
+          return;
+        }
+
+        const summary = {
+          available: true,
+          enabled: !!cfg.enabled,
+          mode: cfg.mode || null,
+          autoDeleteRogueWebhooks: !!cfg.autoDeleteRogueWebhooks,
+          punishExecutor: !!cfg.punishExecutor,
+          punishAction: cfg.punishAction || "none",
+          allowlist: {
+            channels: Array.isArray(cfg.allowlist?.channelIds) ? cfg.allowlist.channelIds.length : 0,
+            webhooks: Array.isArray(cfg.allowlist?.webhookIds) ? cfg.allowlist.webhookIds.length : 0,
+            creators: Array.isArray(cfg.allowlist?.creatorUserIds) ? cfg.allowlist.creatorUserIds.length : 0
+          }
         };
         await i.reply({ content: "```json\n" + JSON.stringify(summary, null, 2).slice(0,1900) + "\n```", flags: MessageFlags.Ephemeral });
         return;
@@ -174,7 +263,6 @@ export async function wire(client) {
         return;
       }
 
-      // NEW: /snapdiff (ephemeral, read-only)
       if (i.commandName === "snapdiff" && allowSnapdiff) {
         const id = i.options.getString("id");
         if (!id) { await i.reply({ content: "Please provide an ID.", flags: MessageFlags.Ephemeral }); return; }
@@ -320,9 +408,10 @@ export async function wire(client) {
       const wantRestore  = normBool(features.slashRestorePreview, true);
       const wantSnapdiff = normBool(features.slashSnapdiff, true);
       const wantWh       = normBool(features.slashWebhookTest, false);
-      // NEW
       const wantSetlog   = normBool(features.slashSetlog, true);
       const wantLogtest  = normBool(features.slashLogtest, true);
+      const wantHelp     = normBool(features.slashHelp, true);               // NEW
+      const wantWebhookV2= normBool(features.slashWebhookV2Status, true);    // NEW
 
       const defs = [];
       if (wantDiag)     defs.push({ name: "diag",     description: "Show bot diagnostics (ephemeral)",            dm_permission: false });
@@ -343,7 +432,6 @@ export async function wire(client) {
         options: [{ type: 3, name: "id", description: "Channel or role ID", required: true }]
       });
 
-      // /wh with correct option order (all required options first)
       if (wantWh) {
         defs.push({
           name: "wh",
@@ -374,21 +462,34 @@ export async function wire(client) {
         });
       }
 
-      // NEW: /setlog and /logtest
       if (wantSetlog) {
         defs.push({
           name: "setlog",
           description: "Set the main moderation log channel",
           dm_permission: false,
-          options: [
-            { type: 7, name: "channel", description: "Text or announcement channel", required: true }
-          ]
+          options: [{ type: 7, name: "channel", description: "Text or announcement channel", required: true } ]
         });
       }
       if (wantLogtest) {
         defs.push({
           name: "logtest",
           description: "Send a test message to the configured log channel",
+          dm_permission: false
+        });
+      }
+
+      if (wantHelp) {
+        defs.push({
+          name: "help",
+          description: "List available commands (ephemeral)",
+          dm_permission: false
+        });
+      }
+
+      if (wantWebhookV2) {
+        defs.push({
+          name: "webhookv2",
+          description: "Show Webhook Guard v2 status (ephemeral)",
           dm_permission: false
         });
       }
