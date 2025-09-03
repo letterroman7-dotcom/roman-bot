@@ -228,4 +228,7 @@ export async function wireWebhookGuardV2(client) {
 }
 
 // Be forgiving about how the wire is imported.
-export default { wire: wireWebhookGuardV2, loadConfig };
+
+// --- export shims for robust imports ---
+export const wire = wireWebhookGuardV2;
+export default { wire, wireWebhookGuardV2, loadConfig };
