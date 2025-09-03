@@ -20,9 +20,9 @@
 //   "rateLimits": { "createPerMinute": 3, "updatePerMinute": 6, "deletePerMinute": 6 },
 //   "exempt": { "roleIds": [], "userIds": [] },
 //
-//   // New (optional):
-//   "startupSweep": true,             // run a sweep on ready (default true)
-//   "blockBotCreatesOutsideAllow": false // if true, even bot-created hooks outside allowlist are removed
+//   // Optional:
+//   "startupSweep": true,                 // run a sweep on ready (default true)
+//   "blockBotCreatesOutsideAllow": false  // if true, even bot-created hooks outside allowlist are removed
 // }
 
 import fs from "node:fs";
@@ -226,8 +226,6 @@ export async function wireWebhookGuardV2(client) {
     }
   });
 }
-
-// Be forgiving about how the wire is imported.
 
 // --- export shims for robust imports ---
 export const wire = wireWebhookGuardV2;

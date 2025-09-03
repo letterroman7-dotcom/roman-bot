@@ -22,7 +22,7 @@ if (!token) {
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,                  // channels/roles/emojis CRUD events
-    GatewayIntentBits.GuildModeration,         // ban add events (v14 alias for GuildBans)
+    GatewayIntentBits.GuildModeration,         // ban add events
     GatewayIntentBits.GuildEmojisAndStickers,  // emoji delete events
   ],
 });
@@ -42,90 +42,6 @@ client.once("ready", () => {
   }
 });
 
-// ───────────────────────────────────────────────────────────────────────────────
-// v2 webhook guard wiring (safe & optional):
-// - Tries root-level locations first:  ../../utils, ../../events
-// - Falls back to src/* locations if present (none in your repo right now)
-// - If anything is missing or disabled, logs and keeps v1-only behavior.
-// ───────────────────────────────────────────────────────────────────────────────
-async function tryImport(candidates) {
-  for (const rel of candidates) {
-    try {
-      // Resolve relative to this file
-      const mod = await import(new URL(rel, import.meta.url));
-      return { mod, rel };
-    } catch { /* try next */ }
-  }
-  return null;
-}
-
-async function wireWebhookGuardV2Safe(cli) {
-  // Load config helper
-  const utilsHit = await tryImport([
-    "../../utils/webhook-guard-v2.js",
-    "../utils/webhook-guard-v2.js",
-  ]);
-  if (!utilsHit) {
-    jlog("info", "webhook.v2", "utils module not found; skipping v2 (v1 stays active)");
-    return;
-  }
-
-  const { loadConfig: loadWebhookV2Config } = utilsHit.mod;
-  let cfg;
-  try {
-    cfg = loadWebhookV2Config();
-  } catch (err) {
-    jlog("warn", "webhook.v2", "failed to load v2 config; skipping", { err: String(err?.message || err) });
-    return;
-  }
-  if (!cfg?.enabled) {
-    jlog("info", "webhook.v2", "v2 guard disabled (config)");
-    return;
-  }
-
-  // Load handlers
-  const createHit = await tryImport([
-    "../../events/webhookCreate.guard.v2.js",
-    "../events/webhookCreate.guard.v2.js",
-  ]);
-  const updateHit = await tryImport([
-    "../../events/webhookUpdate.guard.v2.js",
-    "../events/webhookUpdate.guard.v2.js",
-  ]);
-  const deleteHit = await tryImport([
-    "../../events/webhookDelete.guard.v2.js",
-    "../events/webhookDelete.guard.v2.js",
-  ]);
-
-  if (!createHit || !updateHit || !deleteHit) {
-    jlog("warn", "webhook.v2", "v2 handlers not fully present; skipping v2 wiring (v1 stays active)", {
-      haveCreate: !!createHit, haveUpdate: !!updateHit, haveDelete: !!deleteHit
-    });
-    return;
-  }
-
-  const onWebhookCreateV2 = createHit.mod.default;
-  const onWebhookUpdateV2 = updateHit.mod.default;
-  const onWebhookDeleteV2 = deleteHit.mod.default;
-
-  try {
-    cli.on("webhookCreate", onWebhookCreateV2);
-    cli.on("webhookUpdate", onWebhookUpdateV2);
-    cli.on("webhookDelete", onWebhookDeleteV2);
-    jlog("info", "webhook.v2", "v2 guard wired", {
-      mode: cfg.mode,
-      autoDeleteRogueWebhooks: !!cfg.autoDeleteRogueWebhooks,
-      punishExecutor: !!cfg.punishExecutor,
-      punishAction: cfg.punishAction,
-      utilsPathTried: utilsHit.rel,
-    });
-  } catch (err) {
-    jlog("warn", "webhook.v2", "failed to attach v2 handlers; continuing with v1 only", {
-      err: String(err?.message || err),
-    });
-  }
-}
-
 (async () => {
   jlog("info", "discord.run", "starting discord client", {
     node: process.version,
@@ -136,12 +52,36 @@ async function wireWebhookGuardV2Safe(cli) {
     tokenTail: `***redacted***${String(token).slice(-4)}`,
   });
 
+  // Wire v1 (slash + guards, etc.)
   if (typeof wire === "function") {
-    await wire(client); // your existing wiring (v1 guards, modules, etc.)
+    await wire(client);
   }
 
-  // Wire v2 only if present & enabled; otherwise no-op
-  await wireWebhookGuardV2Safe(client);
+  // 🔹 Always wire Webhook Guard **v2** (independent of v1), with resilient import resolution
+  try {
+    const v2m = await import("../../utils/webhook-guard-v2.js");
+    const v2wire =
+      v2m.wireWebhookGuardV2 ||
+      v2m.wire ||
+      (v2m.default?.wireWebhookGuardV2) ||
+      (v2m.default?.wire) ||
+      v2m.default;
+    if (typeof v2wire === "function") {
+      await v2wire(client);
+    } else {
+      console.warn(JSON.stringify({
+        name: "webhook.v2",
+        msg: "v2 module loaded but no callable wire() found",
+        keys: Object.keys(v2m || {})
+      }));
+    }
+  } catch (err) {
+    console.warn(JSON.stringify({
+      name: "webhook.v2",
+      msg: "v2 import failed",
+      err: String(err?.message || err)
+    }));
+  }
 
   await client.login(token);
   jlog("info", "discord.run", "login() resolved");
