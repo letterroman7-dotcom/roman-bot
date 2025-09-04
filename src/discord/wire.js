@@ -92,6 +92,16 @@ export async function wire(client) {
     console.warn(JSON.stringify({ name: "discord.wire", msg: "webhook-guards import skipped", err: String(err?.message || err) }));
   }
 
+  // 🔹 SpamHeat v2 (dynamic import; inert if file absent)
+  try {
+    console.info(JSON.stringify({ name: "discord.wire", msg: "spamheat import start" }));
+    const { wireSpamHeatV2 } = await import("./addons/spamheat.v2.js");
+    await wireSpamHeatV2(client);
+    console.info(JSON.stringify({ name: "discord.wire", msg: "spamheat import ok (wired)" }));
+  } catch (err) {
+    console.warn(JSON.stringify({ name: "discord.wire", msg: "spamheat import skipped", err: String(err?.message || err) }));
+  }
+
   client.on("interactionCreate", async (i) => {
     try {
       if (!i.isChatInputCommand()) return;

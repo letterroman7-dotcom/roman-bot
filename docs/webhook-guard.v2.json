@@ -1,0 +1,24 @@
+{
+  "enabled": false,
+  "mode": "strict-allowlist",
+  "logSeverity": "warn",
+  "auditChannelId": null,
+  "punishExecutor": false,
+  "punishAction": "none",
+  "allowlist": {
+    "webhookIds": [],
+    "channelIds": [],
+    "creatorUserIds": []
+  },
+  "autoDeleteRogueWebhooks": true,
+  "autoRevokeTokens": true,
+  "rateLimits": {
+    "createPerMinute": 3,
+    "updatePerMinute": 6,
+    "deletePerMinute": 6
+  },
+  "exempt": {
+    "roleIds": [],
+    "userIds": []
+  }
+}

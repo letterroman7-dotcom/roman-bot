@@ -1,13 +1,15 @@
 {
-  "enabled": false,
+  "enabled": true,
   "mode": "strict-allowlist",
   "logSeverity": "warn",
-  "auditChannelId": null,
+  "allowlist": {
+    "webhookIds": [],
+    "channelIds": [],
+    "creatorUserIds": []
+  },
+  "autoDeleteRogueWebhooks": true,
   "punishExecutor": false,
   "punishAction": "none",
-  "allowlist": { "webhookIds": [], "channelIds": [], "creatorUserIds": [] },
-  "autoDeleteRogueWebhooks": true,
-  "autoRevokeTokens": true,
-  "rateLimits": { "createPerMinute": 3, "updatePerMinute": 6, "deletePerMinute": 6 },
-  "exempt": { "roleIds": [], "userIds": [] }
+  "blockBotCreatesOutsideAllow": true,
+  "startupSweep": false
 }

@@ -1,0 +1,37 @@
+// events/webhookDelete.guard.v2.js — inert until wired; does not modify existing v1.
+
+import pino from "pino";
+import { loadConfig, isExempt, shouldBlockChange, summaryForLog } from "../utils/webhook-guard-v2.js";
+
+const log = pino({ name: "webhook.delete.v2" });
+
+export default async function onWebhookDelete(webhook) {
+  const cfg = loadConfig();
+  if (!cfg.enabled) return;
+
+  try {
+    const guild = webhook.guild;
+    const audit = await guild.fetchAuditLogs({ type: 52, limit: 1 }).catch(() => null); // 52 = WEBHOOK_DELETE
+    const entry = audit?.entries?.first?.() ?? null;
+    const executor = entry?.executor ?? null;
+    const member = executor ? await guild.members.fetch(executor.id).catch(() => null) : null;
+
+    if (member && isExempt(member, cfg)) return;
+
+    const ctx = {
+      webhookId: webhook.id,
+      channelId: webhook.channelId ?? webhook.channel?.id ?? null,
+      creatorId: entry?.target?.user?.id ?? null,
+      executorId: executor?.id ?? null,
+      guildId: guild.id
+    };
+
+    const blocked = shouldBlockChange(ctx, cfg);
+    log[cfg.logSeverity]({ ctx }, summaryForLog(ctx, blocked));
+
+    // For delete, we typically *log and optionally punish*—auto-restore is handled elsewhere.
+    // No action here to avoid surprises.
+  } catch (err) {
+    log.warn({ err }, "webhook delete v2 handler error");
+  }
+}

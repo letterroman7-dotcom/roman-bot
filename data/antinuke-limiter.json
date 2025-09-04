@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "windowMs": 30000,
+  "threshold": 3,
+  "weights": {
+    "channelDelete": 1.0,
+    "roleDelete": 1.0,
+    "emojiDelete": 0.5,
+    "webhookCreate": 0.75,
+    "webhookDelete": 0.75,
+    "guildBanAdd": 1.5
+  },
+  "enforce": {
+    "enabled": true,
+    "softLockMinutes": 15
+  },
+  "respectExemptions": true,
+  "logLevel": "info"
+}

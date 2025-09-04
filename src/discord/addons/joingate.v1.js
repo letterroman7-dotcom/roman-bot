@@ -5,6 +5,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { MessageFlags } from "discord.js";
 import createLogger from "../../../utils/pino-factory.js";
 import { SlidingWindowCounter } from "../../../modules/antinuke/window.js";
 import { readFlags, readProjectIds, sendSecurityLog, toRedactedId } from "../../../utils/security-log.js";
@@ -27,20 +28,17 @@ function onceClientReady(client, fn) {
 
 // ----- Soft-lock helpers (LIVE truth = guild.verificationLevel >= VeryHigh) -----
 function verLevelNum(guild) {
-  // discord.js v14 uses numeric enum 0..4; v15 may wrap. Normalize safely.
   const lv = guild?.verificationLevel;
   if (typeof lv === "number") return lv;
   if (lv && typeof lv.value === "number") return lv.value; // future-proof
   const asStr = String(lv || "").toLowerCase();
-  if (asStr.includes("very") || asStr.includes("high") && !asStr.includes("medium")) return 3;
+  if (asStr.includes("very") || (asStr.includes("high") && !asStr.includes("medium"))) return 3;
   if (asStr.includes("high")) return 2;
   if (asStr.includes("medium")) return 1;
   if (asStr.includes("low")) return 0;
   return 0;
 }
-function isLiveLocked(guild) {
-  return verLevelNum(guild) >= 3; // Very High or above
-}
+function isLiveLocked(guild) { return verLevelNum(guild) >= 3; }
 
 // Per-guild state (mirrors live when we touch it)
 const state = new Map();
@@ -98,7 +96,6 @@ async function applySoftLock(guild, cfg) {
   const live = isLiveLocked(guild);
 
   if (live) {
-    // Already locked at the guild level; make our state match.
     s.locked = true;
     return { changed: false, reason: "already_locked_live", verificationLevel: { before: verLevelNum(guild), after: verLevelNum(guild) }, unlockAt: s.unlockAt || null };
   }
@@ -130,7 +127,6 @@ async function releaseSoftLock(guild, cfg, reason = "manual") {
   const live = isLiveLocked(guild);
 
   if (!live) {
-    // Already unlocked at the guild level; make our state match.
     s.locked = false; s.unlockAt = null;
     return { changed: false, reason: "already_unlocked_live", verificationLevel: { before: verLevelNum(guild), after: verLevelNum(guild) } };
   }
@@ -200,6 +196,28 @@ export async function wireJoinGateV1(client) {
   const autoLockOnTrig  = cfg.joinGateSoftLockOnTrigger === true;
   const coolMs          = 30_000; // throttle alerts
 
+  // Bridge: handle Anti-Nuke’s soft-lock request event (respects joinGateEnforceLock)
+  client.on("joingate:softlock:request", async (ev) => {
+    try {
+      if (!ev?.guildId) return;
+      if (!enforceLock) return;
+      const guild = client.guilds.cache.get(ev.guildId) || await client.guilds.fetch(ev.guildId).catch(() => null);
+      if (!guild) return;
+
+      const minutes = Math.max(1, Number(ev.minutes) || cfg.joinGateLockDurationMinutes || 15);
+      const res = await applySoftLock(guild, { ...cfg, joinGateLockDurationMinutes: minutes });
+
+      await sendSecurityLog(client, guild, res.changed ? "warn" : "info", "join-gate.softlock.apply", {
+        requestedBy: ev.actorId || "unknown",
+        source: ev.source || "unknown",
+        minutes,
+        ...res
+      });
+    } catch (err) {
+      log.warn({ err: String(err?.stack || err) }, "softlock request bridge failed");
+    }
+  });
+
   // Register command & boot log when ready; also sync state from LIVE level.
   onceClientReady(client, async () => {
     try {
@@ -211,7 +229,7 @@ export async function wireJoinGateV1(client) {
     }
 
     // Sync all connected guilds on boot
-    for (const [gid, g] of client.guilds.cache) {
+    for (const [, g] of client.guilds.cache) {
       try { syncLockedFromLive(g, { joinGateWindowMs: windowMs }); } catch {}
     }
 
@@ -275,7 +293,7 @@ export async function wireJoinGateV1(client) {
 
       const m = interaction.member;
       const canManage = m?.permissions?.has?.("ManageGuild") || m?.permissions?.has?.("Administrator");
-      if (!canManage) { await interaction.reply({ ephemeral: true, content: "You need **Manage Server** to use this." }); return; }
+      if (!canManage) { await interaction.reply({ flags: MessageFlags.Ephemeral, content: "You need **Manage Server** to use this." }); return; }
 
       const mode = interaction.options?.getString?.("mode");
 
@@ -285,31 +303,29 @@ export async function wireJoinGateV1(client) {
         const s = getState(guild.id, windowMs);
 
         const suffix = s.unlockAt ? ` Auto-unlock: <t:${Math.floor(s.unlockAt/1000)}:R>` : "";
-        await interaction.reply({ ephemeral: true, content: liveOn ? ("Soft-lock is **ON**." + suffix) : "Soft-lock is **OFF**." });
+        await interaction.reply({ flags: MessageFlags.Ephemeral, content: liveOn ? ("Soft-lock is **ON**." + suffix) : "Soft-lock is **OFF**." });
         return;
       }
 
-      if (!manualOK) { await interaction.reply({ ephemeral: true, content: "Manual soft-lock is disabled by feature flags." }); return; }
+      if (!manualOK) { await interaction.reply({ flags: MessageFlags.Ephemeral, content: "Manual soft-lock is disabled by feature flags." }); return; }
 
       if (mode === "on") {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const res = await applySoftLock(guild, cfg);
-        // Ensure state mirrors live even when "already_locked_live"
         syncLockedFromLive(guild, { joinGateWindowMs: windowMs });
         await interaction.editReply(res.changed ? "Soft-lock **enabled**." : "Soft-lock was already ON.");
         return;
       }
 
       if (mode === "off") {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const res = await releaseSoftLock(guild, cfg, "manual");
-        // Ensure state mirrors live even when "already_unlocked_live"
         syncLockedFromLive(guild, { joinGateWindowMs: windowMs });
         await interaction.editReply(res.changed ? "Soft-lock **disabled**." : "Soft-lock was already OFF.");
         return;
       }
 
-      await interaction.reply({ ephemeral: true, content: "Usage: /softlock mode: on|off|status" });
+      await interaction.reply({ flags: MessageFlags.Ephemeral, content: "Usage: /softlock mode: on|off|status" });
     } catch (err) {
       try { if (interaction?.deferred && !interaction?.replied) await interaction.editReply({ content: "Softlock error. Check logs." }); } catch {}
       log.warn({ err: String(err?.stack || err) }, "softlock handler failed");

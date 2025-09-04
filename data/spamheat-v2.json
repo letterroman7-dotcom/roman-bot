@@ -1,0 +1,35 @@
+{
+  "enabled": true,
+  "shadowMode": true,
+  "logSeverity": "info",
+  "exempt": {
+    "roleIds": [],
+    "userIds": []
+  },
+  "rateWindowMs": 10000,
+  "rateLimits": {
+    "messagesPerWindow": 1
+  },
+  "weights": {
+    "link": 2,
+    "mention": 1.5,
+    "emoji": 0.5,
+    "uppercase": 1,
+    "length": 0.25,
+    "newline": 0.3,
+    "repeat": 2
+  },
+  "thresholds": {
+    "heatWarn": 1,
+    "heatBlock": 2
+  },
+  "strikeDecayMs": 30000,
+  "maxStrikes": 2,
+  "actions": {
+    "onWarn": "log",
+    "onBlock": "delete",
+    "onMax": "timeout"
+  },
+  "timeoutSeconds": 60,
+  "deleteMessagesOnBlock": true
+}

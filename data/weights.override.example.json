@@ -1,33 +1,33 @@
-{
-  "defaults": {
-    "threshold": 1,
-    "scorePerEvent": {
-      "channelDelete": 0.5,
-      "roleDelete": 0.5,
-      "webhookDelete": 0.5,
-      "guildBanAdd": 0.5,
-      "emojiDelete": 0.5,
-      "guildUpdate": 0.1,
-      "roleUpdate": 0.1,
-      "channelCreate": 0.25,
-      "roleCreate": 0.25,
-      "webhookCreate": 0.25
-    }
-  },
-  "guilds": {
-    "123456789012345678": {
-      "threshold": 2,
-      "scorePerEvent": {
-        "channelDelete": 1,
-        "roleDelete": 1
-      }
-    },
-    "987654321098765432": {
-      "threshold": 3,
-      "scorePerEvent": {
-        "guildUpdate": 0.2,
-        "roleUpdate": 0.2
-      }
-    }
-  }
+﻿{
+    "defaults":  {
+                     "threshold":  1,
+                     "scorePerEvent":  {
+                                           "channelDelete":  0.5,
+                                           "roleDelete":  0.5,
+                                           "webhookDelete":  0.5,
+                                           "guildBanAdd":  0.5,
+                                           "emojiDelete":  0.5,
+                                           "guildUpdate":  0.1,
+                                           "roleUpdate":  0.1,
+                                           "channelCreate":  0.25,
+                                           "roleCreate":  0.25,
+                                           "webhookCreate":  0.25
+                                       }
+                 },
+    "guilds":  {
+                   "123456789012345678":  {
+                                              "threshold":  2,
+                                              "scorePerEvent":  {
+                                                                    "channelDelete":  1,
+                                                                    "roleDelete":  1
+                                                                }
+                                          },
+                   "987654321098765432":  {
+                                              "threshold":  3,
+                                              "scorePerEvent":  {
+                                                                    "guildUpdate":  0.2,
+                                                                    "roleUpdate":  0.2
+                                                                }
+                                          }
+               }
 }

@@ -1,0 +1,7 @@
+data
+data/snapshots
+scripts
+src/discord
+src/discord/addons
+src/discord/slash
+utils

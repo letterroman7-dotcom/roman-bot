@@ -1,0 +1,9 @@
+folder,files,total_bytes
+.,3,22838
+data,15,7547
+data/snapshots,3,29499
+scripts,11,24071
+src/discord,7,55341
+src/discord/addons,11,98108
+src/discord/slash,1,6934
+utils,25,67137
