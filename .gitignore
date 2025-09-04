@@ -49,9 +49,10 @@ Thumbs.db
 # Git metadata
 *.orig
 
-# Handoff artifacts
+# Handoff artifacts (track only baseline files, ignore everything else)
 .handoff/*
 !.handoff/context.json
 !.handoff/inventory.pre.json
 !.handoff/inventory.post.json
+!.handoff/summary.md
 handoff_*.zip
