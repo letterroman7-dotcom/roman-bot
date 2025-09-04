@@ -7,7 +7,7 @@
     "platform": "win32/10.0.22631/x64"
   },
   "session": {
-    "generatedAt": "2025-09-03T23:21:01.041Z",
+    "generatedAt": "2025-09-04T10:32:55.910Z",
     "owner": "mrahe",
     "purpose": "Auto snapshot for handoff between ChatGPT sessions"
   },
@@ -15,7 +15,7 @@
     "script": "src/discord/run.js"
   },
   "git": {
-    "commit": "7f29fa1",
+    "commit": "f807dd7",
     "branch": "cleanup/repo-hygiene",
     "tag": "v1.2.3-ops-polish",
     "dirty": true
